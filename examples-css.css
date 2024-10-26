@@ -1,0 +1,45 @@
+body {
+    font-family: Arial, sans-serif;
+    margin: 0;
+    padding: 0;
+    background-color: #f4f4f4;
+}
+
+.command-examples {
+    max-width: 800px;
+    margin: 50px auto;
+    padding: 20px;
+    background-color: #fff;
+}
+
+.command-examples h1 {
+    text-align: center;
+    color: #333;
+}
+
+.command-examples p {
+    text-align: center;
+    color: #666;
+    font-size: 18px;
+}
+
+.commands {
+    margin-top: 40px;
+}
+
+.command {
+    background-color: #e8f4fa;
+    border-left: 5px solid #1e90ff;
+    margin-bottom: 20px;
+    padding: 20px;
+}
+
+.command h2 {
+    margin-top: 0;
+    color: #1e90ff;
+}
+
+.command p {
+    color: #333;
+    font-size: 16px;
+}
