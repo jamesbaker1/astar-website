@@ -6,7 +6,77 @@
     <link rel="icon" href="logo.png" type="image/x-icon">
     <link rel="shortcut icon" href="logo.png" type="image/x-icon">
     <title>Autonomy as a Service</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css" rel="stylesheet" />
     <style>
+        /* Your existing CSS */
+        /* ... (existing styles) ... */
+
+        /* API Example Section */
+        .api-example {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 4rem 1rem;
+            color: white;
+        }
+
+        .api-example h1 {
+            text-align: center;
+            font-size: 2.5rem;
+            margin-bottom: 1rem;
+        }
+
+        .api-example p {
+            text-align: center;
+            font-size: 1.5rem;
+            margin-bottom: 2rem;
+            color: #94a3b8;
+        }
+
+        .example-container {
+            display: flex;
+            gap: 2rem;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+
+        .input-section, .output-section {
+            flex: 1;
+            min-width: 300px;
+            background-color: #252525;
+            padding: 2rem;
+            border-radius: 0.5rem;
+        }
+
+        .input-section h2, .output-section h2 {
+            font-size: 1.75rem;
+            margin-bottom: 1rem;
+            color: #3b82f6;
+        }
+
+        .video-placeholder {
+            background-color: #1c1c1c;
+            height: 200px;
+            border: 2px dashed #3b82f6;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: #94a3b8;
+            margin-top: 1rem;
+            border-radius: 0.5rem;
+        }
+
+        pre {
+            background-color: #1c1c1c;
+            padding: 1rem;
+            border-radius: 0.5rem;
+            overflow-x: auto;
+        }
+
+        @media (max-width: 768px) {
+            .example-container {
+                flex-direction: column;
+            }
+        }
         * {
             margin: 0;
             padding: 0;
@@ -502,6 +572,59 @@
                 </div>
             </section>
 
+                <!-- API Response Example Section -->
+    <section class="api-example">
+        <h1>API Input and Output Example</h1>
+        <p>See how our API processes a command and outputs waypoint operations in real-time.</p>
+        <div class="example-container">
+            <div class="input-section">
+                <h2>Input</h2>
+                <p><strong>Command:</strong> "Inspect the solar panels for any defects and report anomalies."</p>
+                <!-- Placeholder for video stream -->
+                <div class="video-placeholder">
+                    <p>Robot Video Stream</p>
+                </div>
+            </div>
+            <div class="output-section">
+                <h2>Output</h2>
+                <pre><code class="language-json">
+// API Response
+{
+    "movements": [
+    {
+        "translation": [1.0, 0.0, 0.0],    // Move forward by 1 meter
+        "rotation": [0, 0, 0],             // No rotation
+        "actions": ["scan_environment"]
+    },
+    {
+        "translation": [0.0, 0.0, 0.0],
+        "rotation": [0, 0, 90],            // Rotate 90 degrees around Z-axis (turn right)
+        "actions": []
+    },
+    {
+        "translation": [2.0, 0.0, 0.0],    // Move forward by 2 meters
+        "rotation": [0, 0, 0],
+        "actions": ["capture_image"]
+    }
+    // Additional movements...
+    ],
+    "status": "mission_planned"
+}
+                </code></pre>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <p>&copy; 2024 AlphaStar. All rights reserved.</p>
+    </footer>
+
+    <!-- Prism.js JS -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-json.min.js"></script>
+
+
     <!-- <div class="trust">
         <div class="trust-items">
             <div class="trust-item">
@@ -523,8 +646,8 @@
     <!-- <footer class="footer">
         <a href="/about">About</a>
     </footer> -->
-    <footer class="footer">
+    <!-- <footer class="footer">
         <p>&copy; 2024 AlphaStar. All rights reserved.</p>
-    </footer>
+    </footer> -->
 </body>
 </html>
