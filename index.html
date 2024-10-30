@@ -309,6 +309,83 @@
         .footer a:hover {
             color: white;
         }
+/* Existing styles remain the same */
+
+/* Hero Section */
+.hero p {
+    font-size: 1.5rem;
+    color: #94a3b8;
+    margin-bottom: 2rem;
+    position: relative;
+    display: inline-block;
+}
+
+/* Changing Text Animation */
+.changing-text {
+    display: inline-block;
+    position: relative;
+    width: 4em; /* Adjust to fit the longest word */
+    height: 1.2em; /* Adjust based on font size; increase if needed */
+    overflow: hidden;
+    vertical-align: bottom;
+    border-bottom: 2px solid #94a3b8; 
+}
+
+.changing-text span {
+    display: block;
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    left: 0;
+    top: 0;
+    opacity: 0;
+    transform: translateY(150%);
+    animation: scrollWords 8s ease-in-out infinite;
+}
+
+.changing-text span:nth-child(1) {
+    opacity: 1;
+    transform: translateY(0%);
+}
+
+.changing-text span:nth-child(2) {
+    animation-delay: 2s;
+}
+
+.changing-text span:nth-child(3) {
+    animation-delay: 4s;
+}
+
+.changing-text span:nth-child(4) {
+    animation-delay: 6s;
+}
+
+/* Keyframes for Vertical Scroll with Extra Space */
+@keyframes scrollWords {
+    0% {
+        opacity: 0;
+        transform: translateY(150%);
+    }
+    10% {
+        opacity: 1;
+        transform: translateY(0%);
+    }
+    30% {
+        opacity: 1;
+        transform: translateY(0%);
+    }
+    40% {
+        opacity: 0;
+        transform: translateY(-150%);
+    }
+    100% {
+        opacity: 0;
+        transform: translateY(-150%);
+    }
+}
+
+/* Rest of your existing CSS styles */
+
     </style>
 </head>
 <body>
@@ -333,7 +410,16 @@
         </div>
         <div class="hero">
             <h1>Autonomy as a Service</h1>
-            <p>Empower your drone to see, think, and act</p>
+            <p>Empower your 
+                <span class="changing-text">
+                <span>drone</span>
+                <span>robot</span>
+                <span>device</span>
+                <span>toaster</span>
+                    <!-- Add more words as needed -->
+                </span>
+                to see, think, and act
+            </p>
             <a href="https://calendar.app.google/wktFY5fMjNjYsNDR9" class="button">
                 Get Started
                 <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="ml-2">
