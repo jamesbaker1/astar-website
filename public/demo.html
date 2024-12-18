@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>My Drone App</title>
+  <style>
+  body { 
+    margin: 0; 
+    background-color: #282C34;
+    font-family: Arial, sans-serif; 
+    color: #FFF; 
+  }
+
+  #info {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    padding: 15px; 
+    color: #A40808;
+    background-color: #1D1D24; 
+    border-radius: 10px; 
+    font-size: 1.1em;
+    z-index: 1;
+    border: 2px dashed #A40808;
+  }
+
+  #controls {
+    position: absolute;
+    top: 10px; right: 10px;
+    background: rgba(0,0,0,0.5);
+    padding: 10px;
+    border-radius: 5px;
+  }
+
+  #controls h2 {
+    margin: 0 0 10px 0;
+    font-size: 16px;
+    font-weight: bold;
+    text-decoration: underline;
+  }
+  #controls p {
+    margin: 5px 0;
+    font-size: 14px;
+  }
+  #speed, #position {
+    margin-top: 10px;
+    font-size: 14px;
+  }
+
+  /* Command input styles */
+  #command-form {
+    position: absolute;
+    bottom: 20px; left: 20px;
+    background: rgba(0,0,0,0.7);
+    padding: 10px;
+    border-radius: 5px;
+    max-width: 300px;
+    border: 2px dashed #A40808;
+  }
+  #command-form input[type="text"] {
+    width: 96%;
+    padding: 5px;
+    border-radius: 3px;
+    border: none;
+    margin-bottom: 10px;
+  }
+  #command-form button {
+    width: 100%;
+    padding: 5px;
+    background: #A40808;
+    border: none;
+    border-radius: 3px;
+    color: #FFF;
+    cursor: pointer;
+    font-weight: bold;
+  }
+  #command-form button:hover {
+    background: #C51919;
+  }
+
+  </style>
+</head>
+<body>
+  <div id="fpv-label" style="position: absolute; left: 20px; top: 20px; color: #000; background: #fff; padding: 2px 5px; font-size: 14px;">
+    FPV
+  </div>
+
+  <div id="depth-label" style="position: absolute; left: 360px; top: 20px; color: #000; background: #fff; padding: 2px 5px; font-size: 14px;">
+    Depth Map
+  </div>
+
+  <div id="controls">
+    <h2>Controls</h2>
+    <p>W/S: Increase/Decrease Throttle</p>
+    <p>A/D: Yaw Left/Right</p>
+    <p>I/K: Pitch Forward/Backward</p>
+    <p>J/L: Roll Left/Right</p>
+    <p>C: Toggle Drone (3rd person) View</p>
+    <p>M: Toggle Bottom View</p>
+    <p id="speed">Speed: 0</p>
+    <p id="position">Position: (0, 0, 0)</p>
+  </div>
+
+  <!-- Command form -->
+  <div id="command-form">
+    <input type="text" id="command-input" placeholder="Enter drone command" />
+    <button id="send-command">Send Command</button>
+  </div>
+
+  <script src="https://threejs.org/build/three.js"></script>
+  <script type="module" src="drone.js"></script>
+
+  <script>
+    // Listen for the send button click
+    document.getElementById('send-command').addEventListener('click', async () => {
+      const command = document.getElementById('command-input').value;
+      if (!command) return;
+
+      // Send the command to the server
+      const response = await fetch('/command', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ command })
+      });
+
+      const data = await response.json();
+      // data.instructions should be the AI-generated commands
+      console.log('AI Instructions:', data.instructions);
+
+      // Here you can apply the instructions to your drone logic
+      // For example, if the instructions say "circle around position X,Y":
+      // parse them and set some state in your drone.js script to execute them.
+      window.applyDroneInstructions(data.instructions); 
+      // You'll create a global function in drone.js to handle applying instructions.
+    });
+  </script>
+</body>
+</html>
