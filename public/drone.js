@@ -5,7 +5,7 @@ import {OrbitControls} from 'https://threejsfundamentals.org/threejs/resources/t
 import { RGBELoader } from 'https://threejsfundamentals.org/threejs/resources/threejs/r127/examples/jsm/loaders/RGBELoader.js';
 import { Sky } from 'https://threejsfundamentals.org/threejs/resources/threejs/r127/examples/jsm/objects/Sky.js';
 
-var ws = new WebSocket('ws://localhost:8080');
+// var ws = new WebSocket('ws://localhost:8080');
 
 // Drone and environment setup
 var drone;
@@ -47,9 +47,9 @@ renderer.setSize(window.innerWidth, window.innerHeight);
 document.body.appendChild(renderer.domElement);
 
 const rgbeLoader = new RGBELoader();
-rgbeLoader.load('/models/cloud_layers_2k.hdr', function (texture) {
-  texture.mapping = THREE.EquirectangularReflectionMapping;
-});
+// rgbeLoader.load('/models/cloud_layers_2k.hdr', function (texture) {
+//   texture.mapping = THREE.EquirectangularReflectionMapping;
+// });
 
 var loader = new GLTFLoader();
 loader.setDRACOLoader(new DRACOLoader().setDecoderPath('https://www.gstatic.com/draco/v1/decoders/'));
@@ -66,8 +66,11 @@ var droneHelper; // We'll create this after drone loads
 var lastSafePosition = new THREE.Vector3();
 
 // Load Drone
+const droneURL = (window.location.hostname === 'localhost')
+  ? '/models/Drone.glb' 
+  : 'https://itxebbadjnoj2hjf.public.blob.vercel-storage.com/Drone-MIyyPRsUFRxuWH7H9ErHhk9dJK2GHP.glb';
 loader.load(
-    '/models/Drone.glb',
+    droneURL,
     function(gltf) {
       drone = gltf.scene;
       // Adjust drone position to a known empty area
@@ -114,8 +117,12 @@ texture.castShadow = false;
 texture.repeat.set(5, 5);
 
 // Load mount
+
 var mount;
-loader.load('/models/full_gameready_city_buildings_ii.glb', function(gltf) {
+const sceneURL = (window.location.hostname === 'localhost')
+  ? '/models/full_gameready_city_buildings_ii.glb' 
+  : 'https://itxebbadjnoj2hjf.public.blob.vercel-storage.com/full_gameready_city_buildings_ii-sNDvtZ58W2bSmwapovJMq7L24Mh5Gq.glb';
+loader.load(sceneURL, function(gltf) {
   mount = gltf.scene;
   mount.position.set(0,0,0);
   mount.scale.set(1,1,1);
