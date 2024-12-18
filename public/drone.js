@@ -94,6 +94,9 @@ loader.load(
       // Now that drone is loaded, we can create the drone helper
       drone.updateMatrixWorld(true);
       droneBox.setFromObject(drone);
+        // Position the camera relative to the drone
+        camera.position.set(drone.position.x, drone.position.y, drone.position.z + 5);
+        camera.lookAt(drone.position);
       // droneHelper = new THREE.Box3Helper(droneBox, 0x00ff00);
       // scene.add(droneHelper);
     },
@@ -134,7 +137,7 @@ scene.background = new THREE.Color(0xffffff);
 scene.fog = new THREE.Fog(0xCCBDC5, 30, 120);
 
 // Set initial camera position and OrbitControls
-camera.position.set(0, 30, 0); // Move the camera higher and slightly offset
+camera.position.set(10, 10, 35); // Move the camera higher and slightly offset
 // camera.lookAt(new THREE.Vector3(10, 10, 17)); // Look at the drone's initial position
 var controls = new OrbitControls(camera, renderer.domElement);
 
@@ -152,6 +155,7 @@ var lastPosition = new THREE.Vector3();
 function updateInfo() {
   var speedElement = document.getElementById('speed');
   var positionElement = document.getElementById('position');
+  var cameraPositionElement = document.getElementById('camera-position');
   if (!drone) return;
 
   var distance = drone.position.distanceTo(lastPosition);
@@ -162,6 +166,13 @@ function updateInfo() {
   if (positionElement) positionElement.innerText =
     'Position: (' + drone.position.x.toFixed(2) + ', ' +
     drone.position.y.toFixed(2) + ', ' + drone.position.z.toFixed(2) + ')';
+
+  // Update camera position display
+  if (cameraPositionElement) {
+    cameraPositionElement.innerText =
+      'Camera Position: (' + camera.position.x.toFixed(2) + ', ' +
+      camera.position.y.toFixed(2) + ', ' + camera.position.z.toFixed(2) + ')';
+  }
 }
 
 // Physics and control variables
