@@ -295,6 +295,8 @@ const depthMaterial = new THREE.MeshDepthMaterial();
 depthMaterial.depthPacking = THREE.RGBADepthPacking;
 depthMaterial.blending = THREE.NoBlending;
 
+let droneRenderTarget = new THREE.WebGLRenderTarget(320, 240);
+
 function animate() {
   requestAnimationFrame(animate);
 
@@ -428,6 +430,41 @@ function animate() {
   scene.overrideMaterial = null;
 
   renderer.setScissorTest(false);
+
+  // --- OFF-SCREEN RENDER PASS ---
+  // Render the scene from the drone camera into the off-screen render target
+  const originalRenderTarget = renderer.getRenderTarget();
+  renderer.setRenderTarget(droneRenderTarget);
+  renderer.clear(); 
+  renderer.render(scene, droneCamera); // This does not affect the main canvas
+  
+  // Read pixels from the render target
+  const width = droneRenderTarget.width;
+  const height = droneRenderTarget.height;
+  const buffer = new Uint8Array(width * height * 4);
+  renderer.readRenderTargetPixels(droneRenderTarget, 0, 0, width, height, buffer);
+
+  // Convert pixel buffer to an image Blob using a temporary canvas
+  const offscreenCanvas = document.createElement('canvas');
+  offscreenCanvas.width = width;
+  offscreenCanvas.height = height;
+  const ctx = offscreenCanvas.getContext('2d');
+  const imageData = ctx.createImageData(width, height);
+  imageData.data.set(buffer);
+  // Flip the canvas vertically
+  ctx.translate(0, height);
+  ctx.scale(1, -1);
+  ctx.putImageData(imageData, 0, 0);
+
+  // Convert the canvas image to a blob
+  offscreenCanvas.toBlob((blob) => {
+    if (blob && window.sendFrame) {
+      window.sendFrame(blob); // Send the drone camera "video feed"
+    }
+  }, 'image/jpeg', 0.7);
+
+  // Restore the original render target
+  renderer.setRenderTarget(originalRenderTarget);
 
   updateInfo();
 }

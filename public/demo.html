@@ -103,7 +103,7 @@
 
   <!-- Command form -->
   <div id="command-form">
-    <input type="text" id="command-input" placeholder="Enter drone command" />
+    <input type="text" id="command-input" placeholder="Enter drone command (goal)" />
     <button id="send-command">Send Command</button>
   </div>
 
@@ -111,28 +111,66 @@
   <script type="module" src="drone.js"></script>
 
   <script>
-    // Listen for the send button click
+    let ws = null;
+    
     document.getElementById('send-command').addEventListener('click', async () => {
-      const command = document.getElementById('command-input').value;
+      const command = document.getElementById('command-input').value.trim();
       if (!command) return;
 
-      // Send the command to the server
-      const response = await fetch('/command', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ command })
-      });
+      // If the WebSocket is not connected or is closing/closed, create a new one
+      if (!ws || ws.readyState > 1) {
+        ws = new WebSocket("ws://localhost:8000/feed");
 
-      const data = await response.json();
-      // data.instructions should be the AI-generated commands
-      console.log('AI Instructions:', data.instructions);
+        ws.onopen = () => {
+          console.log("WebSocket connection established");
 
-      // Here you can apply the instructions to your drone logic
-      // For example, if the instructions say "circle around position X,Y":
-      // parse them and set some state in your drone.js script to execute them.
-      window.applyDroneInstructions(data.instructions); 
-      // You'll create a global function in drone.js to handle applying instructions.
+          // 1) Send the FIRST TEXT message with the 'goal' in JSON
+          const goalMessage = JSON.stringify({ goal: command });
+          ws.send(goalMessage);
+
+          // After that, the server expects binary frames
+        };
+
+        ws.onerror = (error) => {
+          console.error("WebSocket Error:", error);
+        };
+
+        ws.onclose = () => {
+          console.log("WebSocket connection closed");
+        };
+
+        // Listen for bounding box messages from server
+        ws.onmessage = (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            if (data.bounding_box) {
+              console.log("Bounding Box from server:", data.bounding_box);
+              // Here you could apply the bounding box to your drone logic if needed
+              // e.g., window.applyBoundingBox(data.bounding_box);
+            }
+          } catch (e) {
+            console.error("Error parsing message from server:", e);
+          }
+        };
+
+      } else {
+        // If websocket is still open, just send a new "goal" again if desired
+        const goalMessage = JSON.stringify({ goal: command });
+        ws.send(goalMessage);
+      }
     });
+
+    // We'll define a function to send the canvas frame from drone.js
+    // Whenever you have a frame (e.g., from a <canvas> or your rendered scene),
+    // you can call window.sendFrame(blob) to send to the server.
+    window.sendFrame = async function(blob) {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        // Convert blob to array buffer
+        const arrayBuffer = await blob.arrayBuffer();
+        ws.send(arrayBuffer); // This is the binary frame
+      }
+    };
   </script>
+  
 </body>
 </html>
