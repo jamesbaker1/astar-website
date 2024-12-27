@@ -9,27 +9,31 @@ import os
 import re
 import json
 
-# Import Google Generative AI Python library (ensure you've installed `google-generativeai`)
 import google.generativeai as genai
 
 # Initialize or configure the Gemini model
-# Make sure you've set your credentials/environment variables appropriately
-model = genai.GenerativeModel("gemini-1.5-flash")
+genai.configure(api_key="AIzaSyD6dke9yd-dmZoNmGhXdVEhQFIjkb0sxXY")
+model = genai.GenerativeModel("gemini-2.0-flash-exp")
 
 app = FastAPI()
 
 @app.websocket("/feed")
 async def websocket_feed(websocket: WebSocket):
     """
-    This WebSocket endpoint expects the FIRST TEXT message to contain JSON with a 'goal' field.
-    Subsequent messages should be binary images (frames) that we send to the Gemini model,
-    along with the 'goal' from the first message.
+    This WebSocket endpoint:
+      1) Awaits a TEXT message with a 'goal'.
+      2) Then for each BINARY (JPEG) image it receives:
+         - calls Gemini
+         - returns bounding box.
+    The client can choose to only send new frames when it's *ready* for new guidance.
     """
     await websocket.accept()
     print("WebSocket connection accepted")
 
+    goal = None
+
     try:
-        # 1) Receive the first TEXT message, containing JSON with 'goal'
+        # 1) First message must be TEXT containing JSON with 'goal'
         initial_message = await websocket.receive_text()
         data = json.loads(initial_message)
         goal = data.get("goal", "go into the next room")
@@ -41,75 +45,85 @@ async def websocket_feed(websocket: WebSocket):
 
     frame_counter = 0
 
-    while True:
-        try:
-            # 2) After the first message, we expect BINARY frames (JPEG data)
-            frame_data = await websocket.receive_bytes()
+    try:
+        while True:
+            message = await websocket.receive()
+            
+            # If the client closes or disconnects
+            if message["type"] == "websocket.disconnect":
+                print("WebSocket client disconnected.")
+                break
+            
+            # If we got TEXT again, maybe the client updated the goal
+            if "text" in message:
+                try:
+                    text_msg = message["text"]
+                    data = json.loads(text_msg)
+                    if "goal" in data:
+                        goal = data["goal"]
+                        print(f"Updated goal: {goal}")
+                except json.JSONDecodeError:
+                    print("Received text but not valid JSON. Ignoring.")
+            
+            # If we got BINARY data, treat it as an image
+            if "bytes" in message:
+                frame_data = message["bytes"]
 
-            # Convert bytes to a NumPy array
-            arr = np.frombuffer(frame_data, np.uint8)
+                # Convert bytes to NumPy array
+                arr = np.frombuffer(frame_data, np.uint8)
+                img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
 
-            # Decode the image
-            img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+                if img is not None:
+                    # Flip the image vertically to fix upside-down
+                    img = cv2.flip(img, 0)
 
-            if img is not None:
-                # Save the frame to disk (optionally) for verification + sending to Gemini
-                filename = f"frame_{int(time.time())}_{frame_counter}.jpg"
-                cv2.imwrite(filename, img)
-                print(f"Received and saved frame {frame_counter} as {filename}")
-                frame_counter += 1
+                    filename = f"frame_{int(time.time())}_{frame_counter}.jpg"
+                    cv2.imwrite(filename, img)
+                    print(f"Received and saved frame {frame_counter} as {filename}")
+                    frame_counter += 1
 
-                # -- CALL GEMINI API HERE --
-                # Upload the file you just saved
-                myfile = genai.upload_file(filename)
-                
-                # Construct your prompt, incorporating the dynamic goal
-                prompt = (
-                    "You are an expert drone pilot. The view is the drone's first-person view in the air. "
-                    f"Your goal is to {goal}. "
-                    "Generate a plan to complete this goal. "
-                    "Based on this plan, return a bounding box in the form of [ymin, xmin, ymax, xmax] "
-                    "for where you want the drone to fly. "
-                    "Give your explanation first before you return the coordinates."
-                )
+                    # --- CALL GEMINI API ---
+                    # Upload file to Gemini
+                    myfile = genai.upload_file(filename)
 
-                # Generate the content using the model
-                result = model.generate_content([
-                    myfile, 
-                    "\n\n", 
-                    prompt
-                ])
+                    # Construct your prompt
+                    prompt = (
+                        "You are an expert drone pilot. The view is the drone's first-person view in the air. "
+                        f"Your goal is to {goal}. "
+                        "Generate a plan to complete this goal. "
+                        "Based on this plan, return a bounding box in the form of [ymin, xmin, ymax, xmax] "
+                        "for where you want the drone to fly. Be very conservative with your box so as to minimize the chance you hit any objects. Return the smallest box possible to achieve the goal."
+                        "Give your explanation first before you return the coordinates."
+                    )
 
-                # result.text will contain the explanation + bounding box
-                gemini_response = result.text
-                print(f"Gemini response: {gemini_response}")
+                    # Generate the content using the model
+                    result = model.generate_content([myfile, "\n\n", prompt])
+                    gemini_response = result.text
+                    print(f"Gemini response: {gemini_response}")
 
-                # PARSE BOUNDING BOX
-                # Looking for something like [10, 20, 200, 400]
-                bbox_match = re.search(r"\[\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\]", gemini_response)
-                if bbox_match:
-                    ymin, xmin, ymax, xmax = bbox_match.groups()
-                    bounding_box = [int(ymin), int(xmin), int(ymax), int(xmax)]
+                    # Attempt to parse bounding box
+                    bbox_match = re.search(r"\[\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\]", gemini_response)
+                    if bbox_match:
+                        ymin, xmin, ymax, xmax = bbox_match.groups()
+                        bounding_box = [int(ymin), int(xmin), int(ymax), int(xmax)]
+                    else:
+                        bounding_box = []
+
+                    # Send bounding box back over WS
+                    await websocket.send_json({"bounding_box": bounding_box})
                 else:
-                    # If we can't find a bounding box, send an empty array
-                    bounding_box = []
+                    print("Received data, but could not decode as an image.")
 
-                # -- SEND BOUNDING BOX BACK OVER THE WEBSOCKET --
-                await websocket.send_json({"bounding_box": bounding_box})
-            else:
-                print("Received data but could not decode as an image.")
+    except WebSocketDisconnect:
+        print("WebSocket disconnected.")
+    except Exception as e:
+        print("Error in WebSocket connection:", e)
+    finally:
+        await websocket.close()
 
-        except WebSocketDisconnect:
-            print("WebSocket client disconnected.")
-            break
-        except Exception as e:
-            print("WebSocket connection closed due to error:", e)
-            break
-
-# Serve the static files at /public
+# Serve static files
 app.mount("/", StaticFiles(directory="public", html=True), name="public")
 
-# Define a GET endpoint at "/" to return demo.html
 @app.get("/")
 async def root():
     return FileResponse("public/demo.html")

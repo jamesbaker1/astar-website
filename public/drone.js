@@ -5,8 +5,6 @@ import {OrbitControls} from 'https://threejsfundamentals.org/threejs/resources/t
 import { RGBELoader } from 'https://threejsfundamentals.org/threejs/resources/threejs/r127/examples/jsm/loaders/RGBELoader.js';
 import { Sky } from 'https://threejsfundamentals.org/threejs/resources/threejs/r127/examples/jsm/objects/Sky.js';
 
-// var ws = new WebSocket('ws://localhost:8080');
-
 // Drone and environment setup
 var drone;
 var bomb;
@@ -47,9 +45,6 @@ renderer.setSize(window.innerWidth, window.innerHeight);
 document.body.appendChild(renderer.domElement);
 
 const rgbeLoader = new RGBELoader();
-// rgbeLoader.load('/models/cloud_layers_2k.hdr', function (texture) {
-//   texture.mapping = THREE.EquirectangularReflectionMapping;
-// });
 
 var loader = new GLTFLoader();
 loader.setDRACOLoader(new DRACOLoader().setDecoderPath('https://www.gstatic.com/draco/v1/decoders/'));
@@ -97,11 +92,8 @@ loader.load(
       // Now that drone is loaded, we can create the drone helper
       drone.updateMatrixWorld(true);
       droneBox.setFromObject(drone);
-        // Position the camera relative to the drone
-        camera.position.set(drone.position.x, drone.position.y, drone.position.z + 5);
-        camera.lookAt(drone.position);
-      // droneHelper = new THREE.Box3Helper(droneBox, 0x00ff00);
-      // scene.add(droneHelper);
+      camera.position.set(drone.position.x, drone.position.y, drone.position.z + 5);
+      camera.lookAt(drone.position);
     },
     undefined,
     function(error) {
@@ -116,8 +108,7 @@ texture.wrapT = THREE.RepeatWrapping;
 texture.castShadow = false;
 texture.repeat.set(5, 5);
 
-// Load mount
-
+// Load city or environment
 var mount;
 const sceneURL = (window.location.hostname === 'localhost')
   ? '/models/full_gameready_city_buildings_ii.glb' 
@@ -144,11 +135,8 @@ scene.background = new THREE.Color(0xffffff);
 scene.fog = new THREE.Fog(0xCCBDC5, 30, 120);
 
 // Set initial camera position and OrbitControls
-camera.position.set(10, 10, 35); // Move the camera higher and slightly offset
-// camera.lookAt(new THREE.Vector3(10, 10, 17)); // Look at the drone's initial position
+camera.position.set(10, 10, 35);
 var controls = new OrbitControls(camera, renderer.domElement);
-
-// Set both minDistance and maxDistance to the same value to fix the camera distance
 controls.minDistance = 20;
 controls.maxDistance = 20;
 controls.update();
@@ -158,29 +146,6 @@ var bombAnimation = false;
 
 var speed = 0;
 var lastPosition = new THREE.Vector3();
-
-function updateInfo() {
-  var speedElement = document.getElementById('speed');
-  var positionElement = document.getElementById('position');
-  var cameraPositionElement = document.getElementById('camera-position');
-  if (!drone) return;
-
-  var distance = drone.position.distanceTo(lastPosition);
-  speed = distance / (1/60);
-  lastPosition.copy(drone.position);
-
-  if (speedElement) speedElement.innerText = 'Speed: ' + speed.toFixed(2);
-  if (positionElement) positionElement.innerText =
-    'Position: (' + drone.position.x.toFixed(2) + ', ' +
-    drone.position.y.toFixed(2) + ', ' + drone.position.z.toFixed(2) + ')';
-
-  // Update camera position display
-  if (cameraPositionElement) {
-    cameraPositionElement.innerText =
-      'Camera Position: (' + camera.position.x.toFixed(2) + ', ' +
-      camera.position.y.toFixed(2) + ', ' + camera.position.z.toFixed(2) + ')';
-  }
-}
 
 // Physics and control variables
 var clock = new THREE.Clock();
@@ -194,7 +159,7 @@ var desiredAltitude = 1;
 var pitch = 0;
 var roll = 0;
 var yaw = 0;
-var yawOffset = 0; 
+var yawOffset = 0;
 
 var droneCamera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
 droneCamera.position.set(0, 2, -5);
@@ -208,17 +173,17 @@ var keysPressed = {};
 
 const keyMap = {
   'w': { type: 'forward', value: -0.05 },
-  's': { type: 'forward', value: 0.05 },
-  'a': { type: 'yaw',     value: +0.05 },
+  's': { type: 'forward', value:  0.05 },
+  'a': { type: 'yaw',     value:  0.05 },
   'd': { type: 'yaw',     value: -0.05 },
-  'i': { type: 'altitude', value: +5 },
+  'i': { type: 'altitude', value:  5 },
   'k': { type: 'altitude', value: -5 },
   'j': { type: 'roll',     value: -0.1 },
-  'l': { type: 'roll',     value: 0.1 }
+  'l': { type: 'roll',     value:  0.1 }
 };
 
-var flipPitch = 0;  
-var flipRoll = 0;   
+var flipPitch = 0;
+var flipRoll = 0;
 
 window.addEventListener('keydown', function(event) {
   const key = event.key.toLowerCase();
@@ -227,10 +192,12 @@ window.addEventListener('keydown', function(event) {
   }
 
   if (key === 'c') {
-    droneView = !droneView; bottomView = false;
+    droneView = !droneView; 
+    bottomView = false;
   }
   if (key === 'm') {
-    bottomView = !bottomView; droneView = false;
+    bottomView = !bottomView; 
+    droneView = false;
   }
   if (key === 'b') {
     bombDropped = true;
@@ -275,9 +242,9 @@ function applyControls() {
     const mapping = keyMap[k];
     if (!mapping) continue;
     switch(mapping.type) {
-      case 'forward': forwardInput += mapping.value; break;
-      case 'yaw': yawOffset += mapping.value; break;
-      case 'roll': roll += mapping.value; break;
+      case 'forward':  forwardInput += mapping.value;  break;
+      case 'yaw':      yawOffset   += mapping.value;   break;
+      case 'roll':     roll        += mapping.value;   break;
       case 'altitude': altitudeInput += mapping.value; break;
     }
   }
@@ -287,15 +254,106 @@ function applyControls() {
   desiredAltitude += altitudeInput * 0.05;
   if (desiredAltitude < 0) desiredAltitude = 0;
   pitch += flipPitch;
-  roll += flipRoll;
+  roll  += flipRoll;
 }
 
-// Create a depth material for the depth map pass
+// ------------------------------------------------------------------------------------------
+// NEW: Function to steer the drone toward the bounding box center for 5 meters
+// ------------------------------------------------------------------------------------------
+function steerDroneTowardBBox(deltaTime) {
+  if (!window.aiPilotTarget || !window.aiPilotTarget.isActive) return;
+
+  // If we haven't finished turning to center, do that first
+  if (!window.aiPilotTarget.doneTurning) {
+    // Calculate how far away we are from the goal
+    const yawError = window.aiPilotTarget.yawGoal - yaw;
+    const pitchError = window.aiPilotTarget.pitchGoal - pitch;
+
+    // Threshold for "close enough"
+    const angleThreshold = 0.01;  // ~0.57 degrees in radians
+
+    // If we're within that threshold in yaw and pitch, we're done turning
+    if (Math.abs(yawError) < angleThreshold && Math.abs(pitchError) < angleThreshold) {
+      window.aiPilotTarget.doneTurning = true;
+      console.log("AI pilot: done turning, now moving forward");
+    } else {
+      // Otherwise, apply partial rotation
+      const turnSpeed = 0.05; // how many radians per frame we can rotate
+      // Move yaw by up to turnSpeed in the direction of yawError
+      if (Math.abs(yawError) > turnSpeed) {
+        yaw += Math.sign(yawError) * turnSpeed;
+      } else {
+        yaw = window.aiPilotTarget.yawGoal;
+      }
+
+      // Similarly for pitch
+      if (Math.abs(pitchError) > turnSpeed) {
+        pitch += Math.sign(pitchError) * turnSpeed;
+      } else {
+        pitch = window.aiPilotTarget.pitchGoal;
+      }
+    }
+  } 
+  else {
+    // If we've finished turning, move forward a certain distance
+    const moveStep = 0.1;  // meters per frame
+    window.aiPilotTarget.distanceToTravel -= moveStep;
+
+    if (window.aiPilotTarget.distanceToTravel <= 0) {
+      window.aiPilotTarget.isActive = false;
+      console.log("AI pilot: completed 5 meters forward");
+    } else {
+      // Because your drone physics uses pitch to go forward:
+      // pitch > 0 might mean forward or backward depending on your sign
+      // If needed, set pitch or directly manipulate velocity
+      // For example:
+      pitch = 0.02; 
+      // Or pitch += 0.02;
+    }
+  }
+}
+
 const depthMaterial = new THREE.MeshDepthMaterial();
 depthMaterial.depthPacking = THREE.RGBADepthPacking;
 depthMaterial.blending = THREE.NoBlending;
 
 let droneRenderTarget = new THREE.WebGLRenderTarget(320, 240);
+
+function updateInfo() {
+  var speedElement = document.getElementById('speed');
+  var positionElement = document.getElementById('position');
+  var cameraPositionElement = document.getElementById('camera-position');
+
+  // NEW: Elements for yaw, pitch, roll
+  var pitchElement = document.getElementById('pitch-info');
+  var yawElement = document.getElementById('yaw-info');
+  var rollElement = document.getElementById('roll-info');
+
+  if (!drone) return;
+
+  // Calculate drone speed
+  var distance = drone.position.distanceTo(lastPosition);
+  speed = distance / (1/60);
+  lastPosition.copy(drone.position);
+
+  // Update speed, position, camera position
+  if (speedElement) speedElement.innerText = 'Speed: ' + speed.toFixed(2);
+  if (positionElement) {
+    positionElement.innerText =
+      'Position: (' + drone.position.x.toFixed(2) + ', ' +
+      drone.position.y.toFixed(2) + ', ' + drone.position.z.toFixed(2) + ')';
+  }
+  if (cameraPositionElement) {
+    cameraPositionElement.innerText =
+      'Camera Position: (' + camera.position.x.toFixed(2) + ', ' +
+      camera.position.y.toFixed(2) + ', ' + camera.position.z.toFixed(2) + ')';
+  }
+
+  // Update yaw, pitch, roll
+  if (pitchElement) pitchElement.innerText = 'Pitch: ' + pitch.toFixed(2);
+  if (yawElement) yawElement.innerText = 'Yaw: ' + yaw.toFixed(2);
+  if (rollElement) rollElement.innerText = 'Roll: ' + roll.toFixed(2);
+}
 
 function animate() {
   requestAnimationFrame(animate);
@@ -306,8 +364,14 @@ function animate() {
   }
 
   var deltaTime = clock.getDelta();
+
+  // 1. Apply normal keyboard controls
   applyControls();
 
+  // 2. AI logic: steer drone toward bounding box center if active
+  steerDroneTowardBBox(deltaTime);
+
+  // Now proceed with drone orientation and physics
   var euler = new THREE.Euler(pitch, yaw, roll, 'YXZ');
   var quaternion = new THREE.Quaternion().setFromEuler(euler);
   drone.quaternion.copy(quaternion);
@@ -318,11 +382,11 @@ function animate() {
   acceleration.y += altitudeError * liftPower;
 
   var forward = new THREE.Vector3(0,0,-1).applyQuaternion(quaternion);
-  var right = new THREE.Vector3(-1,0,0).applyQuaternion(quaternion);
+  var right   = new THREE.Vector3(-1,0,0).applyQuaternion(quaternion);
 
   // Movement based on pitch and roll
-  acceleration.addScaledVector(forward, pitch * .5);
-  acceleration.addScaledVector(right, roll * .25);
+  acceleration.addScaledVector(forward, pitch * 0.5);
+  acceleration.addScaledVector(right, roll * 0.25);
 
   velocity.addScaledVector(acceleration, deltaTime * 60);
   velocity.multiplyScalar(0.9);
@@ -338,11 +402,6 @@ function animate() {
   drone.updateMatrixWorld(true);
   droneBox.setFromObject(drone);
 
-  // Update drone helper box
-  if (droneHelper) {
-    droneHelper.box.copy(droneBox);
-  }
-
   // Collision detection
   let isColliding = false;
   for (let i = 0; i < environmentBoxes.length; i++) {
@@ -357,15 +416,13 @@ function animate() {
     drone.position.copy(lastSafePosition);
     velocity.set(0,0,0);
   } else {
-    // If no collision, update last safe position
     lastSafePosition.copy(drone.position);
   }
 
-  // Update Cameras
+  // Update Drone Cameras
   droneCamera.position.copy(drone.position);
   droneCamera.position.add(new THREE.Vector3(0,0.5,1).applyQuaternion(drone.quaternion));
   droneCamera.quaternion.copy(drone.quaternion);
-
   let backwardRotation = new THREE.Quaternion();
   backwardRotation.setFromAxisAngle(new THREE.Vector3(0,1,0), Math.PI);
   droneCamera.quaternion.multiply(backwardRotation);
@@ -375,7 +432,7 @@ function animate() {
   droneCameraTwo.quaternion.copy(drone.quaternion);
   droneCameraTwo.quaternion.multiply(backwardRotation);
 
-  // Update the OrbitControls target to follow the drone
+  // Update OrbitControls to follow the drone
   controls.target.copy(drone.position);
   controls.update();
 
@@ -385,60 +442,46 @@ function animate() {
   } else if (bottomView) {
     activeCamera = droneCameraTwo;
   } else {
-    // Use main camera with OrbitControls
-    // The camera remains at a fixed distance (20) from drone due to min/maxDistance settings.
     activeCamera = camera;
   }
 
-  if (mixer) {
-    mixer.update(deltaTime);
-  }
-
+  // Update animations, propellers
+  if (mixer) mixer.update(deltaTime);
   propellers.forEach((propeller) => {
     propeller.rotation.y += 20 * deltaTime;
   });
 
-  if (mixer) {
-    mixer.update(desiredAltitude, -1, 0, 1, 0, 0.5, 5);
-  }
-
-  // Main render
   renderer.setScissorTest(false);
   renderer.setViewport(0, 0, window.innerWidth, window.innerHeight);
   renderer.render(scene, activeCamera);
 
-  // Render the small FPV and depth map
+  // Render the small FPV (droneCamera) and depth map
   const insetWidth = 320;
   const insetHeight = 240;
   const padding = 10;
   const fullWidth = renderer.domElement.clientWidth;
   const fullHeight = renderer.domElement.clientHeight;
 
-  const fpvCam = droneCamera; // Backward FPV camera
-
-  // FPV view
+  // FPV view in the corner
+  const fpvCam = droneCamera;
   renderer.setScissorTest(true);
   renderer.setViewport(padding, fullHeight - insetHeight - padding, insetWidth, insetHeight);
   renderer.setScissor(padding, fullHeight - insetHeight - padding, insetWidth, insetHeight);
   renderer.render(scene, fpvCam);
 
-  // Depth map view
+  // Depth map in the corner next to FPV
   scene.overrideMaterial = depthMaterial;
   renderer.setViewport(padding + insetWidth + padding, fullHeight - insetHeight - padding, insetWidth, insetHeight);
   renderer.setScissor(padding + insetWidth + padding, fullHeight - insetHeight - padding, insetWidth, insetHeight);
   renderer.render(scene, fpvCam);
   scene.overrideMaterial = null;
-
   renderer.setScissorTest(false);
 
   // --- OFF-SCREEN RENDER PASS ---
-  // Render the scene from the drone camera into the off-screen render target
   const originalRenderTarget = renderer.getRenderTarget();
   renderer.setRenderTarget(droneRenderTarget);
-  renderer.clear(); 
-  renderer.render(scene, droneCamera); // This does not affect the main canvas
-  
-  // Read pixels from the render target
+  renderer.clear();
+  renderer.render(scene, droneCamera);
   const width = droneRenderTarget.width;
   const height = droneRenderTarget.height;
   const buffer = new Uint8Array(width * height * 4);
@@ -456,10 +499,10 @@ function animate() {
   ctx.scale(1, -1);
   ctx.putImageData(imageData, 0, 0);
 
-  // Convert the canvas image to a blob
+  // Convert the canvas image to a blob and store it, but DO NOT auto-send
   offscreenCanvas.toBlob((blob) => {
-    if (blob && window.sendFrame) {
-      window.sendFrame(blob); // Send the drone camera "video feed"
+    if (blob) {
+      window.lastDroneBlob = blob;
     }
   }, 'image/jpeg', 0.7);
 

@@ -1,37 +1,37 @@
 <!DOCTYPE html>
 <html>
 <head>
-<title>Drone Flight Planner</title>
-<style>
-  body, html {
-    margin: 0;
-    padding: 0;
-    width: 100%;
-    height: 100%;
-    overflow: hidden; /* Prevent scrollbars */
-  }
+  <title>Drone Flight Planner</title>
+  <style>
+    body, html {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden; /* Prevent scrollbars */
+    }
 
-  #container {
-    position: relative;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    width: 100%;
-    height: 100%;
-  }
+    #container {
+      position: relative;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      width: 100%;
+      height: 100%;
+    }
 
-  #myImage {
-    max-width: 100%;
-    max-height: 100%;
-    object-fit: contain; /* Fit image while maintaining aspect ratio */
-  }
+    #myImage {
+      max-width: 100%;
+      max-height: 100%;
+      object-fit: contain; /* Fit image while maintaining aspect ratio */
+    }
 
-  #bbox {
-    position: absolute;
-    border: 2px solid red;
-    box-sizing: border-box;
-  }
-</style>
+    #bbox {
+      position: absolute;
+      border: 2px solid red;
+      box-sizing: border-box;
+    }
+  </style>
 </head>
 <body>
 
@@ -39,8 +39,8 @@
 
 <input type="file" id="imageUpload" accept="image/*">
 <br>
-<label for="coords">Bounding Box Coordinates [ymin, xmin, ymax, xmax]:</label>
-<input type="text" id="coords" value="0.40, 0.65, 0.85, 0.90">
+<label for="coords">Bounding Box Coordinates [ymin, xmin, ymax, xmax] (0–1000):</label>
+<input type="text" id="coords" value="400, 650, 850, 900">
 <button id="drawButton">Draw Bounding Box</button>
 
 <div id="container">
@@ -71,7 +71,6 @@
   });
 
   drawButton.addEventListener('click', drawBoundingBoxFromInput);
-
   window.addEventListener('resize', drawBoundingBoxFromInput);
 
   function drawBoundingBoxFromInput() {
@@ -80,7 +79,7 @@
     if (coords.length === 4) {
       drawBoundingBox(coords);
     } else {
-      alert('Please enter valid coordinates in the format [ymin, xmin, ymax, xmax]');
+      alert('Please enter valid coordinates in the format [ymin, xmin, ymax, xmax] (0–1000).');
     }
   }
 
@@ -92,16 +91,16 @@
 
     // Determine the limiting dimension (width or height)
     const isWidthLimited = (naturalWidth / naturalHeight) > (containerWidth / containerHeight);
-    
+
     // Calculate scale based on the limiting dimension
     let scale;
     if (isWidthLimited) {
-        scale = containerWidth / naturalWidth;
+      scale = containerWidth / naturalWidth;
     } else {
-        scale = containerHeight / naturalHeight;
+      scale = containerHeight / naturalHeight;
     }
 
-    // Calculate the actual displayed dimensions of the image
+    // Calculate the displayed dimensions of the image
     const displayedWidth = naturalWidth * scale;
     const displayedHeight = naturalHeight * scale;
 
@@ -109,12 +108,20 @@
     const offsetX = (containerWidth - displayedWidth) / 2;
     const offsetY = (containerHeight - displayedHeight) / 2;
 
-    // Calculate bounding box position and size
-    const bboxTop = coords[0] * naturalHeight * scale + offsetY;
-    const bboxLeft = coords[1] * naturalWidth * scale + offsetX;
-    const bboxHeight = (coords[2] - coords[0]) * naturalHeight * scale;
-    const bboxWidth = (coords[3] - coords[1]) * naturalWidth * scale;
+    // Convert Gemini's [0–1000] coordinates back to normalized [0–1]
+    // [ymin, xmin, ymax, xmax]
+    const ymin = coords[0] / 1000;
+    const xmin = coords[1] / 1000;
+    const ymax = coords[2] / 1000;
+    const xmax = coords[3] / 1000;
 
+    // Calculate bounding box position and size
+    const bboxTop = ymin * naturalHeight * scale + offsetY;
+    const bboxLeft = xmin * naturalWidth * scale + offsetX;
+    const bboxHeight = (ymax - ymin) * naturalHeight * scale;
+    const bboxWidth = (xmax - xmin) * naturalWidth * scale;
+
+    // Apply styles to bounding box
     bbox.style.top = bboxTop + 'px';
     bbox.style.left = bboxLeft + 'px';
     bbox.style.height = bboxHeight + 'px';

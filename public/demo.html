@@ -1,93 +1,90 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Monocular Depth Estimation Drone Simulator</title>
+  <title>Drone Gemini Demo</title>
   <style>
-  body { 
-    margin: 0; 
-    background-color: #282C34;
-    font-family: Arial, sans-serif; 
-    color: #FFF; 
-  }
+    body { 
+      margin: 0; 
+      background-color: #282C34;
+      font-family: Arial, sans-serif; 
+      color: #FFF; 
+    }
 
-  #info {
-    position: absolute;
-    top: 10px;
-    left: 10px;
-    padding: 15px; 
-    color: #A40808;
-    background-color: #1D1D24; 
-    border-radius: 10px; 
-    font-size: 1.1em;
-    z-index: 1;
-    border: 2px dashed #A40808;
-  }
+    #controls {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      background: rgba(0,0,0,0.5);
+      padding: 10px;
+      border-radius: 5px;
+      width: 200px;
+    }
+    #controls h2 {
+      margin: 0 0 10px 0;
+      font-size: 16px;
+      font-weight: bold;
+      text-decoration: underline;
+    }
+    #controls p {
+      margin: 5px 0;
+      font-size: 14px;
+    }
+    #speed, #position, #camera-position {
+      margin-top: 10px;
+      font-size: 14px;
+    }
+    /* NEW: Add some margin for the pitch, yaw, roll indicators */
+    #pitch-info, #yaw-info, #roll-info {
+      margin-top: 6px;
+      font-size: 14px;
+    }
 
-  #controls {
-    position: absolute;
-    top: 10px; right: 10px;
-    background: rgba(0,0,0,0.5);
-    padding: 10px;
-    border-radius: 5px;
-  }
-
-  #controls h2 {
-    margin: 0 0 10px 0;
-    font-size: 16px;
-    font-weight: bold;
-    text-decoration: underline;
-  }
-  #controls p {
-    margin: 5px 0;
-    font-size: 14px;
-  }
-  #speed, #position {
-    margin-top: 10px;
-    font-size: 14px;
-  }
-
-  /* Command input styles */
-  #command-form {
-    position: absolute;
-    bottom: 20px; left: 20px;
-    background: rgba(0,0,0,0.7);
-    padding: 10px;
-    border-radius: 5px;
-    max-width: 300px;
-    border: 2px dashed #A40808;
-  }
-  #command-form input[type="text"] {
-    width: 96%;
-    padding: 5px;
-    border-radius: 3px;
-    border: none;
-    margin-bottom: 10px;
-  }
-  #command-form button {
-    width: 100%;
-    padding: 5px;
-    background: #A40808;
-    border: none;
-    border-radius: 3px;
-    color: #FFF;
-    cursor: pointer;
-    font-weight: bold;
-  }
-  #command-form button:hover {
-    background: #C51919;
-  }
-
+    #websocket-controls {
+      position: absolute;
+      bottom: 20px;
+      left: 20px;
+      background: rgba(0,0,0,0.7);
+      padding: 10px;
+      border-radius: 5px;
+      max-width: 300px;
+      border: 2px dashed #A40808;
+    }
+    #websocket-controls h2 {
+      margin: 0;
+      margin-bottom: 10px;
+      font-size: 16px;
+      font-weight: bold;
+      text-decoration: underline;
+    }
+    #websocket-controls button {
+      width: 100%;
+      padding: 6px;
+      background: #A40808;
+      border: none;
+      border-radius: 3px;
+      color: #FFF;
+      cursor: pointer;
+      font-weight: bold;
+      margin-top: 5px;
+    }
+    #websocket-controls button:hover {
+      background: #C51919;
+    }
+    #goalInput {
+      width: 100%;
+      padding: 6px;
+      margin-top: 5px;
+      border-radius: 3px;
+      border: none;
+    }
+    #bboxDisplay {
+      font-weight: bold;
+      color: #FFD700;
+    }
   </style>
 </head>
 <body>
-  <div id="fpv-label" style="position: absolute; left: 20px; top: 20px; color: #000; background: #fff; padding: 2px 5px; font-size: 14px;">
-    FPV
-  </div>
-
-  <div id="depth-label" style="position: absolute; left: 360px; top: 20px; color: #000; background: #fff; padding: 2px 5px; font-size: 14px;">
-    Depth Map
-  </div>
-
+  <!-- Drone Flight Controls -->
   <div id="controls">
     <h2>Controls</h2>
     <p>W/S: Increase/Decrease Throttle</p>
@@ -96,81 +93,130 @@
     <p>J/L: Roll Left/Right</p>
     <p>C: Toggle Drone (3rd person) View</p>
     <p>M: Toggle Bottom View</p>
+
     <p id="speed">Speed: 0</p>
     <p id="position">Position: (0, 0, 0)</p>
     <p id="camera-position">Camera Position: (0, 0, 0)</p>
+
+    <!-- NEW: Realtime pitch, yaw, roll info -->
+    <p id="pitch-info">Pitch: 0</p>
+    <p id="yaw-info">Yaw: 0</p>
+    <p id="roll-info">Roll: 0</p>
   </div>
 
-  <!-- Command form -->
-  <div id="command-form">
-    <input type="text" id="command-input" placeholder="Enter drone command (goal)" />
-    <button id="send-command">Send Command</button>
+  <!-- WebSocket / Goal Controls -->
+  <div id="websocket-controls">
+    <h2>AI Pilot</h2>
+    <button id="updateGoalBtn">Update Goal</button>
+    <button id="sendFrameBtn">Send Frame</button>
+
+    <label for="goalInput">Current Goal:</label>
+    <input type="text" id="goalInput" value="go into the next room" />
+
+    <p>Bounding Box: <span id="bboxDisplay">N/A</span></p>
   </div>
 
+  <!-- For your three.js or other main script(s) -->
   <script src="https://threejs.org/build/three.js"></script>
   <script type="module" src="drone.js"></script>
 
   <script>
-    let ws = null;
-    
-    document.getElementById('send-command').addEventListener('click', async () => {
-      const command = document.getElementById('command-input').value.trim();
-      if (!command) return;
+    let ws;
 
-      // If the WebSocket is not connected or is closing/closed, create a new one
-      if (!ws || ws.readyState > 1) {
-        ws = new WebSocket("ws://localhost:8000/feed");
+    // --------------------------------------------------------------------------------------
+    // NEW: AI Pilot target info (for bounding-box-based movement)
+    // --------------------------------------------------------------------------------------
+    // Example: index.html or somewhere global
+    window.aiPilotTarget = {
+      isActive: false,
+      distanceToTravel: 0,   // how many meters to move forward
+      yawGoal: 0,
+      pitchGoal: 0,
+      doneTurning: false,
+    };
 
-        ws.onopen = () => {
-          console.log("WebSocket connection established");
+    // Connect WebSocket automatically on page load
+    window.addEventListener('load', () => {
+      ws = new WebSocket("ws://localhost:8000/feed");
+      ws.onopen = () => {
+        console.log("WebSocket open");
+        // Send initial goal automatically
+        const initialGoal = { goal: document.getElementById('goalInput').value };
+        ws.send(JSON.stringify(initialGoal));
+      };
+      ws.onerror = (err) => console.error("WebSocket Error:", err);
+      ws.onclose = () => console.log("WebSocket closed");
+      ws.onmessage = (event) => {
+        console.log("Message from server:", event.data);
+        try {
+          const data = JSON.parse(event.data);
+          if (data.bounding_box) {
+            document.getElementById('bboxDisplay').textContent =
+              `[${data.bounding_box.join(", ")}]`;
+            console.log("Received bounding box:", data.bounding_box);
 
-          // 1) Send the FIRST TEXT message with the 'goal' in JSON
-          const goalMessage = JSON.stringify({ goal: command });
-          ws.send(goalMessage);
+            // ------------------------------------------------------------------------
+            // NEW: Convert the Gemini bounding box to our 320x240 coordinate space
+            // Gemini returns in [ymin, xmin, ymax, xmax] scaled to 1000x1000
+            // So we do: (value / 1000) * [FPV_width or FPV_height]
+            // Then store in window.aiPilotTarget to move the drone
+            // ------------------------------------------------------------------------
+            const [ymin, xmin, ymax, xmax] = data.bounding_box;
+            const xC = ((xmin + xmax) / 2) / 1000 * 320; 
+            const yC = ((ymin + ymax) / 2) / 1000 * 240; 
+            console.log("xC", xC, "yC", yC);
 
-          // After that, the server expects binary frames
-        };
+            // We want to figure out how far off-center it is
+            const diffX = xC - 160;   // negative if left of center
+            const diffY = yC - 120;   // negative if above center
 
-        ws.onerror = (error) => {
-          console.error("WebSocket Error:", error);
-        };
+            // Suppose each pixel of x-difference = 0.002 radians of yaw (tweak as needed)
+            // Suppose each pixel of y-difference = 0.002 radians of pitch
+            // Usually you'd invert Y if needed, e.g. pitch = - diffY * factor
+            const factor = 0.002; 
+            const yawNeeded = -diffX * factor;   
+            const pitchNeeded = diffY * factor;  
 
-        ws.onclose = () => {
-          console.log("WebSocket connection closed");
-        };
-
-        // Listen for bounding box messages from server
-        ws.onmessage = (event) => {
-          try {
-            const data = JSON.parse(event.data);
-            if (data.bounding_box) {
-              console.log("Bounding Box from server:", data.bounding_box);
-              // Here you could apply the bounding box to your drone logic if needed
-              // e.g., window.applyBoundingBox(data.bounding_box);
-            }
-          } catch (e) {
-            console.error("Error parsing message from server:", e);
+            // "Initial" yaw/pitch come from your current global variables
+            // (assuming you store them in `yaw`, `pitch` in drone.js)
+            // So your final goal is:
+            window.aiPilotTarget.yawGoal   = yaw + yawNeeded;
+            window.aiPilotTarget.pitchGoal = pitch + pitchNeeded;
+            window.aiPilotTarget.doneTurning = false;
+            window.aiPilotTarget.distanceToTravel = 5;  // move 5 meters after turning
+            window.aiPilotTarget.isActive = true;
           }
-        };
-
-      } else {
-        // If websocket is still open, just send a new "goal" again if desired
-        const goalMessage = JSON.stringify({ goal: command });
-        ws.send(goalMessage);
-      }
+        } catch (e) {
+          console.error("Error parsing JSON:", e);
+        }
+      };
     });
 
-    // We'll define a function to send the canvas frame from drone.js
-    // Whenever you have a frame (e.g., from a <canvas> or your rendered scene),
-    // you can call window.sendFrame(blob) to send to the server.
-    window.sendFrame = async function(blob) {
+    // Update the goal (send text) only
+    document.getElementById('updateGoalBtn').onclick = () => {
       if (ws && ws.readyState === WebSocket.OPEN) {
-        // Convert blob to array buffer
-        const arrayBuffer = await blob.arrayBuffer();
-        ws.send(arrayBuffer); // This is the binary frame
+        const newGoal = { goal: document.getElementById('goalInput').value };
+        ws.send(JSON.stringify(newGoal));
+      } else {
+        console.warn("WebSocket is not open. Cannot update goal.");
+      }
+    };
+
+    // Send the latest drone FPV to request bounding box or inference
+    document.getElementById('sendFrameBtn').onclick = async () => {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        if (window.lastDroneBlob) {
+          // Convert the most recent drone FPV to an ArrayBuffer and send
+          const arrayBuffer = await window.lastDroneBlob.arrayBuffer();
+          ws.send(arrayBuffer);
+          console.log("Sent the latest drone FPV frame.");
+        } else {
+          console.warn("No drone FPV frame available to send yet.");
+        }
+      } else {
+        console.warn("WebSocket is not open. Cannot send frame.");
       }
     };
   </script>
-  
 </body>
 </html>
