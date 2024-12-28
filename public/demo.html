@@ -33,12 +33,12 @@
       margin-top: 10px;
       font-size: 14px;
     }
-    /* NEW: Add some margin for the pitch, yaw, roll indicators */
     #pitch-info, #yaw-info, #roll-info {
       margin-top: 6px;
       font-size: 14px;
     }
 
+    /* Main control panel on the left */
     #websocket-controls {
       position: absolute;
       bottom: 20px;
@@ -81,10 +81,66 @@
       font-weight: bold;
       color: #FFD700;
     }
+
+    /* Plan & Steps box */
+    #plan-steps-container {
+      position: absolute;
+      bottom: 220px; /* push it above the history container */
+      right: 20px;
+      background: rgba(0,0,0,0.7);
+      padding: 10px;
+      border-radius: 5px;
+      max-width: 300px;
+      border: 2px dashed #048A17;
+    }
+    #plan-steps-container h2 {
+      margin: 0;
+      margin-bottom: 10px;
+      font-size: 16px;
+      font-weight: bold;
+      text-decoration: underline;
+    }
+    #planList {
+      margin: 0;
+      padding-left: 20px;
+      font-size: 14px;
+    }
+    .completed-step {
+      text-decoration: line-through;
+      color: #AAA;
+    }
+
+    /* History box */
+    #history-container {
+      position: absolute;
+      bottom: 20px;
+      right: 20px;
+      background: rgba(0,0,0,0.7);
+      padding: 10px;
+      border-radius: 5px;
+      max-width: 300px;
+      border: 2px dashed #808080;
+      /* Place it below the plan box. */
+    }
+    #history-container h2 {
+      margin: 0;
+      margin-bottom: 10px;
+      font-size: 16px;
+      font-weight: bold;
+      text-decoration: underline;
+    }
+    #historyContent {
+      white-space: pre-wrap; /* preserve newlines */
+      max-height: 180px;
+      overflow-y: auto; /* scrollable if long */
+      font-size: 14px;
+      background-color: rgba(255,255,255,0.05);
+      padding: 5px;
+      border-radius: 5px;
+    }
   </style>
 </head>
 <body>
-  <!-- Drone Flight Controls -->
   <div id="controls">
     <h2>Controls</h2>
     <p>W/S: Increase/Decrease Throttle</p>
@@ -98,124 +154,179 @@
     <p id="position">Position: (0, 0, 0)</p>
     <p id="camera-position">Camera Position: (0, 0, 0)</p>
 
-    <!-- NEW: Realtime pitch, yaw, roll info -->
     <p id="pitch-info">Pitch: 0</p>
     <p id="yaw-info">Yaw: 0</p>
     <p id="roll-info">Roll: 0</p>
   </div>
 
-  <!-- WebSocket / Goal Controls -->
   <div id="websocket-controls">
     <h2>AI Pilot</h2>
-    <button id="updateGoalBtn">Update Goal</button>
-    <button id="sendFrameBtn">Send Frame</button>
 
-    <label for="goalInput">Current Goal:</label>
+    <!-- This button calls /get_plan to retrieve a plan. -->
+    <button id="retrievePlanBtn">Retrieve Plan</button>
+    <label for="goalInput">Goal for Plan:</label>
     <input type="text" id="goalInput" value="go into the next room" />
+
+    <!-- After we have plan, we can open the WS and do bounding boxes. -->
+    <button id="openWsBtn">Open WebSocket</button>
+
+    <!-- We'll send the first step or any step to the WS as the "goal" -->
+    <button id="sendStepBtn">Send Current Step to WS</button>
+
+    <button id="sendFrameBtn">Send Frame</button>
+    <button id="nextStepBtn">Complete Current Step</button>
 
     <p>Bounding Box: <span id="bboxDisplay">N/A</span></p>
   </div>
 
-  <!-- For your three.js or other main script(s) -->
+  <div id="plan-steps-container">
+    <h2>Plan & Steps</h2>
+    <ol id="planList"></ol>
+  </div>
+
+  <div id="history-container">
+    <h2>History</h2>
+    <div id="historyContent">No history yet.</div>
+  </div>
+
   <script src="https://threejs.org/build/three.js"></script>
   <script type="module" src="drone.js"></script>
 
   <script>
-    let ws;
+    let ws = null;
 
-    // --------------------------------------------------------------------------------------
-    // NEW: AI Pilot target info (for bounding-box-based movement)
-    // --------------------------------------------------------------------------------------
-    // Example: index.html or somewhere global
-    window.aiPilotTarget = {
-      isActive: false,
-      distanceToTravel: 0,   // how many meters to move forward
-      yawGoal: 0,
-      pitchGoal: 0,
-      doneTurning: false,
+    let planSteps = [];
+    let currentStepIndex = 0;
+    let currentGoalText = "";  // The step text or sub-goal text
+
+    // Render plan steps with strike-out for completed steps
+    function renderPlanSteps() {
+      const planList = document.getElementById('planList');
+      planList.innerHTML = '';
+      planSteps.forEach((step, idx) => {
+        const li = document.createElement('li');
+        li.textContent = step;
+        if (idx < currentStepIndex) {
+          li.classList.add('completed-step');
+        }
+        planList.appendChild(li);
+      });
+    }
+
+    // 1. Retrieve the plan from /get_plan
+    document.getElementById('retrievePlanBtn').onclick = async () => {
+      const goal = document.getElementById('goalInput').value.trim();
+      if (!goal) {
+        alert("Please enter a goal first.");
+        return;
+      }
+
+      try {
+        const response = await fetch('/get_plan', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ goal })
+        });
+        const data = await response.json();
+
+        if (data.planSteps) {
+          planSteps = data.planSteps;
+          currentStepIndex = 0;
+          renderPlanSteps();
+        } else {
+          console.log("Failed to get planSteps:", data);
+        }
+      } catch (err) {
+        console.error("Error calling /get_plan:", err);
+      }
     };
 
-    // Connect WebSocket automatically on page load
-    window.addEventListener('load', () => {
+    // 2. Open the WebSocket
+    document.getElementById('openWsBtn').onclick = () => {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        console.warn("WebSocket is already open.");
+        return;
+      }
+
       ws = new WebSocket("ws://localhost:8000/feed");
+
       ws.onopen = () => {
-        console.log("WebSocket open");
-        // Send initial goal automatically
-        const initialGoal = { goal: document.getElementById('goalInput').value };
-        ws.send(JSON.stringify(initialGoal));
+        console.log("WebSocket opened successfully.");
       };
-      ws.onerror = (err) => console.error("WebSocket Error:", err);
-      ws.onclose = () => console.log("WebSocket closed");
+      ws.onerror = (err) => {
+        console.error("WebSocket Error:", err);
+      };
+      ws.onclose = () => {
+        console.log("WebSocket closed.");
+      };
       ws.onmessage = (event) => {
         console.log("Message from server:", event.data);
         try {
           const data = JSON.parse(event.data);
+
+          // If updated bounding box
           if (data.bounding_box) {
             document.getElementById('bboxDisplay').textContent =
               `[${data.bounding_box.join(", ")}]`;
             console.log("Received bounding box:", data.bounding_box);
+          }
 
-            // ------------------------------------------------------------------------
-            // NEW: Convert the Gemini bounding box to our 320x240 coordinate space
-            // Gemini returns in [ymin, xmin, ymax, xmax] scaled to 1000x1000
-            // So we do: (value / 1000) * [FPV_width or FPV_height]
-            // Then store in window.aiPilotTarget to move the drone
-            // ------------------------------------------------------------------------
-            const [ymin, xmin, ymax, xmax] = data.bounding_box;
-            const xC = ((xmin + xmax) / 2) / 1000 * 320; 
-            const yC = ((ymin + ymax) / 2) / 1000 * 240; 
-            console.log("xC", xC, "yC", yC);
+          // If updated history
+          if (typeof data.history !== 'undefined') {
+            document.getElementById('historyContent').textContent = data.history;
+          }
 
-            // We want to figure out how far off-center it is
-            const diffX = xC - 160;   // negative if left of center
-            const diffY = yC - 120;   // negative if above center
-
-            // Suppose each pixel of x-difference = 0.002 radians of yaw (tweak as needed)
-            // Suppose each pixel of y-difference = 0.002 radians of pitch
-            // Usually you'd invert Y if needed, e.g. pitch = - diffY * factor
-            const factor = 0.002; 
-            const yawNeeded = -diffX * factor;   
-            const pitchNeeded = diffY * factor;  
-
-            // "Initial" yaw/pitch come from your current global variables
-            // (assuming you store them in `yaw`, `pitch` in drone.js)
-            // So your final goal is:
-            window.aiPilotTarget.yawGoal   = yaw + yawNeeded;
-            window.aiPilotTarget.pitchGoal = pitch + pitchNeeded;
-            window.aiPilotTarget.doneTurning = false;
-            window.aiPilotTarget.distanceToTravel = 5;  // move 5 meters after turning
-            window.aiPilotTarget.isActive = true;
+          // If there's an updated currentStepIndex
+          if (typeof data.currentStepIndex !== 'undefined') {
+            currentStepIndex = data.currentStepIndex;
+            renderPlanSteps();
           }
         } catch (e) {
-          console.error("Error parsing JSON:", e);
+          console.error("Error parsing JSON from server:", e);
         }
       };
-    });
+    };
 
-    // Update the goal (send text) only
-    document.getElementById('updateGoalBtn').onclick = () => {
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        const newGoal = { goal: document.getElementById('goalInput').value };
-        ws.send(JSON.stringify(newGoal));
+    // 3. Send the CURRENT step to the WS as "goal"
+    //    (We assume the step is planSteps[currentStepIndex], but you can choose any.)
+    document.getElementById('sendStepBtn').onclick = () => {
+      if (!ws || ws.readyState !== WebSocket.OPEN) {
+        console.warn("WebSocket is not open. Cannot send step as goal.");
+        return;
+      }
+      if (planSteps.length === 0) {
+        alert("No plan steps to send. Retrieve a plan first.");
+        return;
+      }
+      currentGoalText = planSteps[currentStepIndex] || "(No step found)";
+      ws.send(JSON.stringify({ goal: currentGoalText }));
+      console.log("Sent step as goal to WS:", currentGoalText);
+    };
+
+    // 4. Send a frame (binary) to the WS
+    //    We'll use the window.lastDroneBlob from your drone.js if it’s available
+    document.getElementById('sendFrameBtn').onclick = async () => {
+      if (!ws || ws.readyState !== WebSocket.OPEN) {
+        console.warn("WebSocket is not open. Cannot send frame.");
+        return;
+      }
+      if (window.lastDroneBlob) {
+        const arrayBuffer = await window.lastDroneBlob.arrayBuffer();
+        ws.send(arrayBuffer);
+        console.log("Sent the latest drone FPV frame.");
       } else {
-        console.warn("WebSocket is not open. Cannot update goal.");
+        console.warn("No drone FPV frame available to send yet.");
       }
     };
 
-    // Send the latest drone FPV to request bounding box or inference
-    document.getElementById('sendFrameBtn').onclick = async () => {
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        if (window.lastDroneBlob) {
-          // Convert the most recent drone FPV to an ArrayBuffer and send
-          const arrayBuffer = await window.lastDroneBlob.arrayBuffer();
-          ws.send(arrayBuffer);
-          console.log("Sent the latest drone FPV frame.");
-        } else {
-          console.warn("No drone FPV frame available to send yet.");
-        }
-      } else {
-        console.warn("WebSocket is not open. Cannot send frame.");
+    // 5. Complete the current step => increment step index on the server
+    document.getElementById('nextStepBtn').onclick = () => {
+      if (!ws || ws.readyState !== WebSocket.OPEN) {
+        console.warn("WebSocket is not open. Cannot complete step.");
+        return;
       }
+      ws.send(JSON.stringify({ completeStep: true }));
+      console.log("Told the server to complete the current step.");
     };
   </script>
 </body>

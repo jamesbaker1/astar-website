@@ -68,7 +68,6 @@ loader.load(
     droneURL,
     function(gltf) {
       drone = gltf.scene;
-      // Adjust drone position to a known empty area
       drone.position.set(10, 10, 17); 
       drone.scale.set(5,5,5);
       drone.traverse(function(child) {
@@ -86,10 +85,9 @@ loader.load(
         mixer.clipAction(clip).play();
       });
 
-      // Initialize last safe position once the drone is loaded
       lastSafePosition.copy(drone.position);
 
-      // Now that drone is loaded, we can create the drone helper
+      // Drone bounding box helper
       drone.updateMatrixWorld(true);
       droneBox.setFromObject(drone);
       camera.position.set(drone.position.x, drone.position.y, drone.position.z + 5);
@@ -117,7 +115,6 @@ loader.load(sceneURL, function(gltf) {
   mount = gltf.scene;
   mount.position.set(0,0,0);
   mount.scale.set(1,1,1);
-
   scene.add(mount);
   mount.updateMatrixWorld(true);
 },
@@ -161,13 +158,18 @@ var roll = 0;
 var yaw = 0;
 var yawOffset = 0;
 
+// ------------------------------------------------------------------------------------------
+// NEW: We introduce a global "yawNeeded" that we adjust each frame until it's zero.
+// ------------------------------------------------------------------------------------------
+// let yawNeeded = 0;
+
 var droneCamera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
 droneCamera.position.set(0, 2, -5);
 var droneCameraTwo = droneCamera.clone();
 
 var droneView = false;  
 var bottomView = false;  
-var fix_camera = false;
+var fix_camera = true;
 
 var keysPressed = {};
 
@@ -258,58 +260,27 @@ function applyControls() {
 }
 
 // ------------------------------------------------------------------------------------------
-// NEW: Function to steer the drone toward the bounding box center for 5 meters
+// UPDATED: Slimmed down "steerDroneTowardBBox" to only modify the drone's yaw
 // ------------------------------------------------------------------------------------------
 function steerDroneTowardBBox(deltaTime) {
-  if (!window.aiPilotTarget || !window.aiPilotTarget.isActive) return;
+  // If yawNeeded is near zero, do nothing
+  if (Math.abs(window.yawNeeded) < 0.0001) {
+    return;
+  }
+  console.log(window.yawNeeded);
+  // We rotate up to some max turn step each frame
+  const turnStep = 0.05; // how fast we turn per frame
 
-  // If we haven't finished turning to center, do that first
-  if (!window.aiPilotTarget.doneTurning) {
-    // Calculate how far away we are from the goal
-    const yawError = window.aiPilotTarget.yawGoal - yaw;
-    const pitchError = window.aiPilotTarget.pitchGoal - pitch;
-
-    // Threshold for "close enough"
-    const angleThreshold = 0.01;  // ~0.57 degrees in radians
-
-    // If we're within that threshold in yaw and pitch, we're done turning
-    if (Math.abs(yawError) < angleThreshold && Math.abs(pitchError) < angleThreshold) {
-      window.aiPilotTarget.doneTurning = true;
-      console.log("AI pilot: done turning, now moving forward");
-    } else {
-      // Otherwise, apply partial rotation
-      const turnSpeed = 0.05; // how many radians per frame we can rotate
-      // Move yaw by up to turnSpeed in the direction of yawError
-      if (Math.abs(yawError) > turnSpeed) {
-        yaw += Math.sign(yawError) * turnSpeed;
-      } else {
-        yaw = window.aiPilotTarget.yawGoal;
-      }
-
-      // Similarly for pitch
-      if (Math.abs(pitchError) > turnSpeed) {
-        pitch += Math.sign(pitchError) * turnSpeed;
-      } else {
-        pitch = window.aiPilotTarget.pitchGoal;
-      }
-    }
-  } 
-  else {
-    // If we've finished turning, move forward a certain distance
-    const moveStep = 0.1;  // meters per frame
-    window.aiPilotTarget.distanceToTravel -= moveStep;
-
-    if (window.aiPilotTarget.distanceToTravel <= 0) {
-      window.aiPilotTarget.isActive = false;
-      console.log("AI pilot: completed 5 meters forward");
-    } else {
-      // Because your drone physics uses pitch to go forward:
-      // pitch > 0 might mean forward or backward depending on your sign
-      // If needed, set pitch or directly manipulate velocity
-      // For example:
-      pitch = 0.02; 
-      // Or pitch += 0.02;
-    }
+  if (window.yawNeeded > 0) {
+    // Turn left (increase yaw)
+    const amt = Math.min(turnStep, window.yawNeeded);
+    yaw += amt;
+    window.yawNeeded -= amt;
+  } else if (window.yawNeeded < 0) {
+    // Turn right (decrease yaw)
+    const amt = Math.min(turnStep, Math.abs(window.yawNeeded));
+    yaw -= amt;
+    window.yawNeeded += amt;
   }
 }
 
@@ -368,7 +339,7 @@ function animate() {
   // 1. Apply normal keyboard controls
   applyControls();
 
-  // 2. AI logic: steer drone toward bounding box center if active
+  // 2. AI logic (only for yaw now)
   steerDroneTowardBBox(deltaTime);
 
   // Now proceed with drone orientation and physics
@@ -376,15 +347,15 @@ function animate() {
   var quaternion = new THREE.Quaternion().setFromEuler(euler);
   drone.quaternion.copy(quaternion);
 
+  // Basic vertical physics
   acceleration.set(0, gravity, 0);
   let currentAltitude = drone.position.y;
   let altitudeError = desiredAltitude - currentAltitude;
   acceleration.y += altitudeError * liftPower;
 
+  // Forward/backward, left/right
   var forward = new THREE.Vector3(0,0,-1).applyQuaternion(quaternion);
   var right   = new THREE.Vector3(-1,0,0).applyQuaternion(quaternion);
-
-  // Movement based on pitch and roll
   acceleration.addScaledVector(forward, pitch * 0.5);
   acceleration.addScaledVector(right, roll * 0.25);
 
@@ -487,19 +458,17 @@ function animate() {
   const buffer = new Uint8Array(width * height * 4);
   renderer.readRenderTargetPixels(droneRenderTarget, 0, 0, width, height, buffer);
 
-  // Convert pixel buffer to an image Blob using a temporary canvas
+  // Convert pixel buffer to an image Blob
   const offscreenCanvas = document.createElement('canvas');
   offscreenCanvas.width = width;
   offscreenCanvas.height = height;
   const ctx = offscreenCanvas.getContext('2d');
   const imageData = ctx.createImageData(width, height);
   imageData.data.set(buffer);
-  // Flip the canvas vertically
   ctx.translate(0, height);
   ctx.scale(1, -1);
   ctx.putImageData(imageData, 0, 0);
 
-  // Convert the canvas image to a blob and store it, but DO NOT auto-send
   offscreenCanvas.toBlob((blob) => {
     if (blob) {
       window.lastDroneBlob = blob;
