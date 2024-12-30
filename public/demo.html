@@ -295,6 +295,7 @@
               // Now compute how much yaw is needed to turn toward that bbox center
               // For example, assume our "video feed" is 1280 wide x 720 high:
               window.yawNeeded = computeYawNeeded(parsed.data, 320, 240);
+              window.distanceToTravel = 10.0;
 
               console.log("New bounding box:", parsed.data);
               console.log("Computed yawNeeded:", window.yawNeeded);
