@@ -155,7 +155,7 @@ var desiredAltitude = 1;
 
 var pitch = 0;
 var roll = 0;
-var yaw = 0;
+var yaw = 3.14;
 var yawOffset = 0;
 
 // ------------------------------------------------------------------------------------------
@@ -267,7 +267,7 @@ function steerDroneTowardBBox(deltaTime) {
   if (Math.abs(window.yawNeeded) < 0.0001) {
     return;
   }
-  console.log(window.yawNeeded);
+  // console.log(window.yawNeeded);
   // We rotate up to some max turn step each frame
   const turnStep = 0.05; // how fast we turn per frame
 

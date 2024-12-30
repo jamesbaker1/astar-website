@@ -159,6 +159,11 @@
       0% { transform: rotate(0deg); }
       100% { transform: rotate(360deg); }
     }
+
+    /* Hiding the "Complete Current Step" button for now */
+    #nextStepBtn {
+      display: none;
+    }
   </style>
 </head>
 <body>
@@ -191,19 +196,13 @@
     <label for="goalInput">Goal for Plan:</label>
     <input type="text" id="goalInput" value="Explore the city" />
 
-    <!-- Open WebSocket to /feed -->
-    <button id="openWsBtn">Open WebSocket</button>
-
     <!-- We'll send the current step as the "goal" in a JSON message (with optional frame) -->
-    <button id="sendStepBtn">Send Current Step to WS</button>
+    <button id="sendCurrentStepBtn">Send Current Step</button>
 
-    <!-- Send the current frame (and same or different goal) to WS -->
-    <button id="sendFrameBtn">Send Frame (WS)</button>
-
-    <!-- Mark the current step as complete locally (for UI) -->
+    <!-- Hidden for now (display: none above) -->
     <button id="nextStepBtn">Complete Current Step</button>
 
-    <p>Bounding Box: <span id="bboxDisplay">N/A</span></p>
+    <p>Target: <span id="bboxDisplay">N/A</span></p>
   </div>
 
   <div id="plan-steps-container">
@@ -286,7 +285,7 @@
       container.appendChild(ol);
     }
 
-    // 1. Retrieve the plan from /get_plan (remains the same)
+    // 1. Retrieve the plan from /get_plan
     document.getElementById('retrievePlanBtn').onclick = async () => {
       const goal = document.getElementById('goalInput').value.trim();
       if (!goal) {
@@ -338,11 +337,10 @@
       }
     };
 
-    // 2. Open the WebSocket
-    document.getElementById('openWsBtn').onclick = () => {
+    // Helper function to open WebSocket if not open yet
+    function ensureWebSocketOpen() {
       if (ws && ws.readyState === WebSocket.OPEN) {
-        console.warn("WebSocket is already open.");
-        return;
+        return; // already open
       }
       ws = new WebSocket("ws://localhost:8000/feed");
 
@@ -390,16 +388,18 @@
           console.error("Error parsing WS message:", e);
         }
       };
-    };
+    }
 
-    // 3. Send the CURRENT step to the WebSocket
-    document.getElementById('sendStepBtn').onclick = async () => {
-      if (!ws || ws.readyState !== WebSocket.OPEN) {
-        console.warn("WebSocket is not open.");
-        return;
-      }
+    // 2. Send the CURRENT step (automatically open WS if needed)
+    document.getElementById('sendCurrentStepBtn').onclick = async () => {
       if (planSteps.length === 0) {
         alert("No plan steps to send. Retrieve a plan first.");
+        return;
+      }
+
+      ensureWebSocketOpen(); // Open if not already
+      if (!ws || ws.readyState !== WebSocket.OPEN) {
+        console.warn("WebSocket is still not open; please try again.");
         return;
       }
 
@@ -423,39 +423,8 @@
       }));
 
       console.log("Sent step as goal + optional image to WS:", currentGoalText);
-    };
 
-    // 4. Send a frame to the WS (for bounding box / history update)
-    document.getElementById('sendFrameBtn').onclick = async () => {
-      if (!ws || ws.readyState !== WebSocket.OPEN) {
-        console.warn("WebSocket is not open. Cannot send frame.");
-        return;
-      }
-      if (!window.lastDroneBlob) {
-        console.warn("No drone FPV frame available to send yet.");
-        return;
-      }
-
-      showSpinner(); // We'll hide it once bounding_box is received
-
-      // Convert the blob to base64
-      const base64Image = await blobToBase64(window.lastDroneBlob);
-
-      // We can pass the same or a different "goal" here
-      const goal = document.getElementById('goalInput').value.trim() || "N/A";
-
-      // Send JSON with { goal, history, image } 
-      ws.send(JSON.stringify({
-        goal: goal,
-        history: globalHistory,
-        image: base64Image
-      }));
-
-      console.log("Sent drone FPV frame + current history to WS.");
-    };
-
-    // 5. Complete the current step => increment step index (local UI only)
-    document.getElementById('nextStepBtn').onclick = () => {
+      // Automatically increment the step once the previous step is sent
       if (currentStepIndex < planSteps.length) {
         currentStepIndex += 1;
         renderPlanSteps();
