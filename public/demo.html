@@ -199,7 +199,7 @@
     <!-- We'll send the current step as the "goal" in a JSON message (with optional frame) -->
     <button id="sendCurrentStepBtn">Send Current Step</button>
 
-    <!-- Hidden for now (display: none above) -->
+    <!-- Hidden for now (display: none) -->
     <button id="nextStepBtn">Complete Current Step</button>
 
     <p>Target: <span id="bboxDisplay">N/A</span></p>
@@ -220,11 +220,108 @@
   <script type="module" src="drone.js"></script>
 
   <script>
+    // --------------------------------------------------------
+    // GLOBALS FOR YAW CONTROL
+    // --------------------------------------------------------
+    // This holds the "remaining" yaw we need to turn
+    window.yawNeeded = 0;  
+
+    // This is our current absolute yaw in radians
+    let yaw = 0;
+
+    /**
+     * Convert a bounding box in [0,1000] space to a yaw offset,
+     * based on the actual image dimensions. 
+     * Positive => turn left, negative => turn right.
+     */
+    function computeYawNeeded(bbox, imageWidth, imageHeight) {
+      // bbox is [ymin, xmin, ymax, xmax] in [0,1000] range
+      const [ymin, xmin, ymax, xmax] = bbox;
+
+      // 1. Find bounding box center in X (scaled to imageWidth)
+      const centerX = ((xmin + xmax) / 2 / 1000) * imageWidth;
+
+      // 2. How far from the image's horizontal center (in px)
+      const offsetX = centerX - imageWidth / 2;
+
+      // 3. Normalize to [-1,1] (left edge ~ -1, right edge ~ +1)
+      const normalizedOffset = offsetX / (imageWidth / 2);
+
+      // 4. Scale by desired maximum yaw, e.g. ±π
+      const maxYaw = Math.PI / 2;  // 180 degrees
+      const yawNeeded = normalizedOffset * maxYaw;
+
+      return yawNeeded;
+    }
+
+    // --------------------------------------------------------
+    // WEBSOCKET AND UI LOGIC
+    // --------------------------------------------------------
     let ws = null;
     let planSteps = [];
     let currentStepIndex = 0;
-    let globalHistory = [];  // Now just an array of strings
-    let currentGoalText = ""; 
+    let globalHistory = []; // array of strings
+    let currentGoalText = "";
+
+    // Open WebSocket as soon as the page loads:
+    window.addEventListener("load", () => {
+      ws = new WebSocket("ws://localhost:8000/feed");
+
+      ws.onopen = () => {
+        console.log("WebSocket opened successfully (page load).");
+      };
+
+      ws.onerror = (err) => {
+        console.error("WebSocket Error:", err);
+      };
+
+      ws.onclose = () => {
+        console.log("WebSocket closed.");
+      };
+
+      ws.onmessage = (event) => {
+        console.log("WS Message:", event.data);
+        try {
+          const parsed = JSON.parse(event.data);
+          switch (parsed.type) {
+            case "bounding_box":
+              // Hide spinner when bounding_box arrives
+              hideSpinner();
+
+              // Show the bounding box in UI
+              document.getElementById('bboxDisplay').textContent =
+                `[${parsed.data.join(", ")}]`;
+              
+              // Now compute how much yaw is needed to turn toward that bbox center
+              // For example, assume our "video feed" is 1280 wide x 720 high:
+              window.yawNeeded = computeYawNeeded(parsed.data, 320, 240);
+
+              console.log("New bounding box:", parsed.data);
+              console.log("Computed yawNeeded:", window.yawNeeded);
+              break;
+
+            case "history":
+              // Update local history array
+              globalHistory = parsed.data;
+              updateHistoryDisplay(globalHistory);
+              break;
+
+            case "error":
+              // The server might send an "error" type
+              hideSpinner();
+              console.error("Server error:", parsed.message);
+              alert("Server error: " + parsed.message);
+              break;
+
+            default:
+              console.log("Unrecognized WS message type:", parsed.type);
+              break;
+          }
+        } catch (e) {
+          console.error("Error parsing WS message:", e);
+        }
+      };
+    });
 
     // Helper function to show/hide the spinner
     function showSpinner() {
@@ -337,73 +434,20 @@
       }
     };
 
-    // Helper function to open WebSocket if not open yet
-    function ensureWebSocketOpen() {
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        return; // already open
-      }
-      ws = new WebSocket("ws://localhost:8000/feed");
-
-      ws.onopen = () => {
-        console.log("WebSocket opened successfully.");
-      };
-      ws.onerror = (err) => {
-        console.error("WebSocket Error:", err);
-      };
-      ws.onclose = () => {
-        console.log("WebSocket closed.");
-      };
-
-      ws.onmessage = (event) => {
-        console.log("WS Message:", event.data);
-        try {
-          const parsed = JSON.parse(event.data);
-          switch (parsed.type) {
-            case "bounding_box":
-              // Hide spinner when bounding_box arrives
-              hideSpinner();
-              // Show the bounding box
-              document.getElementById('bboxDisplay').textContent =
-                `[${parsed.data.join(", ")}]`;
-              break;
-
-            case "history":
-              // Update local history array
-              globalHistory = parsed.data;
-              updateHistoryDisplay(globalHistory);
-              break;
-
-            case "error":
-              // The server might send an "error" type
-              hideSpinner();
-              console.error("Server error:", parsed.message);
-              alert("Server error: " + parsed.message);
-              break;
-
-            default:
-              console.log("Unrecognized WS message type:", parsed.type);
-              break;
-          }
-        } catch (e) {
-          console.error("Error parsing WS message:", e);
-        }
-      };
-    }
-
-    // 2. Send the CURRENT step (automatically open WS if needed)
+    // 2. Send the CURRENT step (now that WebSocket opens on page load)
     document.getElementById('sendCurrentStepBtn').onclick = async () => {
       if (planSteps.length === 0) {
         alert("No plan steps to send. Retrieve a plan first.");
         return;
       }
 
-      ensureWebSocketOpen(); // Open if not already
+      // If the socket isn't open yet (or closed), let's bail out
       if (!ws || ws.readyState !== WebSocket.OPEN) {
-        console.warn("WebSocket is still not open; please try again.");
+        alert("WebSocket is not open yet, please wait and try again.");
         return;
       }
 
-      // The current step’s "goal" text
+      // The current step's "goal" text
       currentGoalText = planSteps[currentStepIndex]
         ? planSteps[currentStepIndex].step_description
         : "(No step found)";
@@ -423,6 +467,7 @@
       }));
 
       console.log("Sent step as goal + optional image to WS:", currentGoalText);
+      console.log("History: ", globalHistory || []);
 
       // Automatically increment the step once the previous step is sent
       if (currentStepIndex < planSteps.length) {

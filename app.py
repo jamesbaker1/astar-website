@@ -100,8 +100,8 @@ async def websocket_feed(websocket: WebSocket):
             })
 
             # 6) Clean up the local file
-            if filename and os.path.exists(filename):
-                os.remove(filename)
+            # if filename and os.path.exists(filename):
+            #     os.remove(filename)
 
         except WebSocketDisconnect:
             print("WebSocket disconnected.")
