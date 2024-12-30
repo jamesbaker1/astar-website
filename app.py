@@ -34,7 +34,7 @@ async def websocket_feed(websocket: WebSocket):
 
     Then:
       1. Decode the base64 image and save to disk.
-      2. Generate bounding box => send bounding_box message.
+      2. Generate flight_instruction => send flight_instruction message.
       3. Generate updated history => send history message (now just an array of strings).
       4. Loop until the client disconnects.
     """
@@ -75,16 +75,15 @@ async def websocket_feed(websocket: WebSocket):
                     })
                     continue
 
-            # 4) Generate bounding box
+            # 4) Generate flight instruction (rotate, elevate, or bounding box)
+            flight_instruction = {}
             if filename and goal:
-                bounding_box = await generate_bounding_box(filename, goal, history_data)
-            else:
-                bounding_box = []
+                flight_instruction = await generate_flight_instruction(filename, goal, history_data)
 
-            # Send bounding box to client immediately
+            # Send flight instruction to client immediately
             await websocket.send_json({
-                "type": "bounding_box",
-                "data": bounding_box
+                "type": "flight_instruction",
+                "data": flight_instruction
             })
 
             # 5) Generate updated history (array of strings)
@@ -99,7 +98,7 @@ async def websocket_feed(websocket: WebSocket):
                 "data": updated_history
             })
 
-            # 6) Clean up the local file
+            # 6) Clean up the local file if needed
             # if filename and os.path.exists(filename):
             #     os.remove(filename)
 
@@ -111,49 +110,79 @@ async def websocket_feed(websocket: WebSocket):
             break
 
 
-async def generate_bounding_box(image_path: str, goal: str, history: list) -> list:
+async def generate_flight_instruction(image_path: str, goal: str, history: list) -> dict:
     """
-    Generate a bounding box. Return in the form [ymin, xmin, ymax, xmax].
-    If parsing fails, return an empty list.
-    
-    history is now just a list of 2-sentence strings.
+    Produce a single flight instruction in JSON with one key:
+      - {"r": degrees}     # rotate
+      - {"e": meters}      # elevate
+      - {"g": [ymin, xmin, ymax, xmax]} # go to bounding box
+
+    If parsing fails, return {}.
     """
-    # Convert history list -> string for the prompt
-    # e.g. history = ["Two short sentences.", "Another vantage..."]
+
+    # Convert history -> multiline string
     if history:
         history_str = "\n".join([f"View {i}: {entry}" for i, entry in enumerate(history)])
     else:
         history_str = "No prior vantage data."
 
     # Build prompt
-    bounding_box_prompt = (
+    # flight_prompt = (
+    #     "You are an expert drone pilot.\n"
+    #     f"Goal: {goal}\n\n"
+    #     "Existing vantage descriptions (each is 2 sentences):\n"
+    #     f"{history_str}\n\n"
+    #     "You have three possible flight actions:\n"
+    #     "1) Rotate => {\"r\": <angle_degrees>}\n"
+    #     "2) Elevate => {\"e\": <meters_up>}\n"
+    #     "3) Go to bounding box => {\"g\": [ymin, xmin, ymax, xmax]}\n\n"
+    #     "Generate exactly one JSON object with one key among r, e, g.\n"
+    #     "Examples:\n"
+    #     "  {\"r\": 90}\n"
+    #     "  {\"e\": 5}\n"
+    #     "  {\"g\": [100, 200, 300, 400]}\n\n"
+    #     "No extra text. Only return valid JSON."
+    # )
+    flight_prompt = (
         "You are an expert drone pilot.\n"
-        f"Goal: {goal}\n\n"
-        "Existing vantage descriptions (each is 2 sentences):\n"
-        f"{history_str}\n\n"
-        "Given the new image, generate a bounding box in the form of [ymin, xmin, ymax, xmax] "
-        "where you want the drone to fly. Be very conservative to avoid collisions.\n"
-        "Give an explanation, then the coordinates in the last line."
+        f"Your goal is: {goal}\n\n"
+        "You have three possible flight actions to accomplish the goal:\n"
+        "1) Rotate => {\"r\": <angle_degrees>}\n"
+        "2) Elevate => {\"e\": <meters_up>}\n"
+        "3) Go to bounding box => {\"g\": [ymin, xmin, ymax, xmax]}\n\n"
+        "Generate exactly one JSON object with one key among r, e, g.\n"
+        "No extra text. Only return valid JSON."
     )
 
-    # Upload the file
+    # Upload the file (if you'd like to pass the image context to Gemini)
     file_attachment = genai.upload_file(image_path)
 
-    # Call Gemini
-    result = model.generate_content([file_attachment, "\n\n", bounding_box_prompt])
-    gemini_response = result.text
-    print(f"[Bounding Box] Gemini response:\n{gemini_response}")
+    print(flight_prompt)
 
-    # Parse bounding box
-    bbox_match = re.search(
-        r"\[\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\]",
-        gemini_response
-    )
-    if bbox_match:
-        ymin, xmin, ymax, xmax = bbox_match.groups()
-        return [int(ymin), int(xmin), int(ymax), int(xmax)]
-    else:
-        return []
+    # Call Gemini
+    result = model.generate_content([file_attachment, "\n\n", flight_prompt])
+    gemini_response = result.text
+    print(f"[Flight Instruction] Gemini response:\n{gemini_response}")
+
+    # Extract JSON from response
+    match = re.search(r"\{.*?\}", gemini_response, re.DOTALL)
+    if not match:
+        return {}
+
+    try:
+        flight_dict = json.loads(match.group(0))
+    except json.JSONDecodeError:
+        return {}
+
+    # Validate that only one valid key is present
+    valid_keys = {"r", "e", "g"}
+    keys_present = [k for k in flight_dict.keys() if k in valid_keys]
+    if len(keys_present) != 1:
+        # If there's not exactly one valid key, treat as invalid
+        return {}
+
+    return flight_dict
+
 
 @app.post("/get_plan")
 async def get_plan(request: Request):
@@ -212,7 +241,7 @@ async def get_plan(request: Request):
             "Only return valid JSON that matches this schema."
         )
 
-        # If there's a history/previousPlan, let's modify the prompt to incorporate re-evaluation
+        # If there's a history/previousPlan, let's modify the prompt
         if history or previous_plan:
             plan_prompt = (
                 "You are in RE-EVALUATION mode due to new information or updated context.\n"
@@ -260,8 +289,6 @@ async def generate_updated_history(image_path: str, current_history: list) -> li
     Each string is "2 short, highly information-dense sentences."
     The index in the array corresponds to the vantage number.
     """
-    # Convert the existing list to a multiline string for the LLM prompt
-    # e.g. current_history = ["Sentences for vantage #0", "Sentences for vantage #1"]
     if current_history:
         existing_history_str = "\n".join(
             [f"View {i}: {desc}" for i, desc in enumerate(current_history)]
@@ -270,8 +297,6 @@ async def generate_updated_history(image_path: str, current_history: list) -> li
         existing_history_str = "(no prior vantage)"
 
     # Create the prompt
-    # We ask the model to append a new vantage with exactly 2 short sentences to our history array.
-    # Then return the ENTIRE updated array in valid JSON.
     if existing_history_str.strip() and existing_history_str.strip() != "(no prior vantage)":
         prompt = (
             "You are an expert drone pilot. This is your new FPV image.\n"
@@ -291,13 +316,12 @@ async def generate_updated_history(image_path: str, current_history: list) -> li
             '["first sentence. second sentence."]'
         )
 
-    # Upload the file
+    # Upload the file to Gemini
     file_attachment = genai.upload_file(image_path)
     result = model.generate_content([file_attachment, "\n\n", prompt])
     gemini_response = result.text
     print(f"[Generate History] Gemini response:\n{gemini_response}")
 
-    # Clean up the LLM output (remove code fences, extra whitespace, etc.)
     cleaned_text = re.sub(r'```(\w+)?', '', gemini_response).strip()
 
     try:

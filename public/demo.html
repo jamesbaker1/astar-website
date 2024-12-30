@@ -202,7 +202,7 @@
     <!-- Hidden for now (display: none) -->
     <button id="nextStepBtn">Complete Current Step</button>
 
-    <p>Target: <span id="bboxDisplay">N/A</span></p>
+    <p>Current action:<span id="bboxDisplay">N/A</span></p>
   </div>
 
   <div id="plan-steps-container">
@@ -247,8 +247,8 @@
       // 3. Normalize to [-1,1] (left edge ~ -1, right edge ~ +1)
       const normalizedOffset = offsetX / (imageWidth / 2);
 
-      // 4. Scale by desired maximum yaw, e.g. ±π
-      const maxYaw = Math.PI / 2;  // 180 degrees
+      // 4. Scale by desired maximum yaw, e.g. ±π/2
+      const maxYaw = Math.PI / 2;  // 90 degrees in each direction
       const yawNeeded = normalizedOffset * maxYaw;
 
       return yawNeeded;
@@ -284,21 +284,41 @@
         try {
           const parsed = JSON.parse(event.data);
           switch (parsed.type) {
-            case "bounding_box":
-              // Hide spinner when bounding_box arrives
+
+            case "flight_instruction":
+              // Hide spinner when flight_instruction arrives
               hideSpinner();
 
-              // Show the bounding box in UI
-              document.getElementById('bboxDisplay').textContent =
-                `[${parsed.data.join(", ")}]`;
-              
-              // Now compute how much yaw is needed to turn toward that bbox center
-              // For example, assume our "video feed" is 1280 wide x 720 high:
-              window.yawNeeded = computeYawNeeded(parsed.data, 320, 240);
-              window.distanceToTravel = 10.0;
+              const flightInstruction = parsed.data || {};
+              if (Object.keys(flightInstruction).length === 0) {
+                // No valid instruction
+                document.getElementById('bboxDisplay').textContent = "N/A";
+                break;
+              }
 
-              console.log("New bounding box:", parsed.data);
-              console.log("Computed yawNeeded:", window.yawNeeded);
+              // Check which key we got
+              if (flightInstruction.r !== undefined) {
+                document.getElementById('bboxDisplay').textContent =
+                  `Rotate ${flightInstruction.r} degrees`;
+                console.log("Rotate", flightInstruction.r);
+                // Your rotation logic
+
+              } else if (flightInstruction.e !== undefined) {
+                document.getElementById('bboxDisplay').textContent =
+                  `Elevate ${flightInstruction.e} meters`;
+                console.log("Elevate", flightInstruction.e);
+                // Your elevation logic
+
+              } else if (Array.isArray(flightInstruction.g)) {
+                document.getElementById('bboxDisplay').textContent =
+                  `Go to: [${flightInstruction.g.join(", ")}]`;
+                console.log("Bounding box =>", flightInstruction.g);
+
+                // If you still want to compute yaw based on bounding box:
+                window.yawNeeded = computeYawNeeded(flightInstruction.g, 320, 240);
+                window.distanceToTravel = 10.0;
+                console.log("Computed yawNeeded:", window.yawNeeded);
+              }
               break;
 
             case "history":
