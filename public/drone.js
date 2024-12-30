@@ -163,7 +163,8 @@ var acceleration = new THREE.Vector3(0,0,0);
 
 const gravity = -0.005;
 const liftPower = 0.05;
-var desiredAltitude = 1;
+// Instead of "var desiredAltitude = 1;", use window to make it globally modifiable
+window.desiredAltitude = 1;
 
 var pitch = 0;
 var roll = 0;
@@ -252,7 +253,7 @@ window.addEventListener('keyup', function(event) {
 
 function applyControls() {
   let altitudeInput = 0;
-  let forwardInput  = 0;  // <--- NEW: track forward/back
+  let forwardInput  = 0;
   yawOffset = 0;
   roll = 0;
 
@@ -277,11 +278,11 @@ function applyControls() {
   }
 
   yaw += yawOffset;
-  desiredAltitude += altitudeInput * 0.05;
-  if (desiredAltitude < 0) desiredAltitude = 0;
+  // Update the global desiredAltitude
+  window.desiredAltitude += altitudeInput * 0.05;
+  if (window.desiredAltitude < 0) window.desiredAltitude = 0;
 
   // Combine forwardInput with flips for final pitch
-  // If AI also changes pitch, be aware you may need to combine carefully
   pitch = forwardInput + flipPitch;
   roll  += flipRoll;
 }
@@ -376,7 +377,7 @@ function animate() {
 
   var deltaTime = clock.getDelta();
 
-  // 1. Apply normal keyboard controls (re-including W & S)
+  // 1. Apply normal keyboard controls
   applyControls();
 
   // 2. AI autopilot logic (yaw, then forward)
@@ -390,7 +391,8 @@ function animate() {
   // Basic vertical physics
   acceleration.set(0, gravity, 0);
   let currentAltitude = drone.position.y;
-  let altitudeError = desiredAltitude - currentAltitude;
+  // Use the global desiredAltitude
+  let altitudeError = window.desiredAltitude - currentAltitude;
   acceleration.y += altitudeError * liftPower;
 
   // Forward/backward, left/right from pitch/roll

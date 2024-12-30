@@ -202,7 +202,7 @@
     <!-- Hidden for now (display: none) -->
     <button id="nextStepBtn">Complete Current Step</button>
 
-    <p>Current action:<span id="bboxDisplay">N/A</span></p>
+    <p>Current action: <span id="bboxDisplay">N/A</span></p>
   </div>
 
   <div id="plan-steps-container">
@@ -305,16 +305,18 @@
 
               } else if (flightInstruction.e !== undefined) {
                 document.getElementById('bboxDisplay').textContent =
-                  `Elevate ${flightInstruction.e} meters`;
+                  `elevate ${flightInstruction.e} meters`;
                 console.log("Elevate", flightInstruction.e);
-                // Your elevation logic
+
+                // Elevation logic:
+                // If the server instructs "e": +5 means climb 5 meters, -5 means descend 5, etc.
+                window.desiredAltitude += flightInstruction.e;
 
               } else if (Array.isArray(flightInstruction.g)) {
                 document.getElementById('bboxDisplay').textContent =
                   `Go to: [${flightInstruction.g.join(", ")}]`;
                 console.log("Bounding box =>", flightInstruction.g);
 
-                // If you still want to compute yaw based on bounding box:
                 window.yawNeeded = computeYawNeeded(flightInstruction.g, 320, 240);
                 window.distanceToTravel = 10.0;
                 console.log("Computed yawNeeded:", window.yawNeeded);
