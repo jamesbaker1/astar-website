@@ -8,8 +8,6 @@
       background-color: #282C34;
       font-family: Arial, sans-serif; 
       color: #FFF; 
-      /* Ensure the body has position: relative so our spinner
-         can be absolutely positioned in the center of the page */
       position: relative;
       height: 100vh;
     }
@@ -133,9 +131,9 @@
       text-decoration: underline;
     }
     #historyContent {
-      white-space: pre-wrap; /* preserve newlines */
+      white-space: pre-wrap;
       max-height: 180px;
-      overflow-y: auto; /* scrollable if long */
+      overflow-y: auto;
       font-size: 14px;
       background-color: rgba(255,255,255,0.05);
       padding: 5px;
@@ -149,7 +147,7 @@
       top: 50%;
       left: 50%;
       transform: translate(-50%, -50%);
-      z-index: 9999; /* ensure it’s on top of everything */
+      z-index: 9999;
       width: 64px;
       height: 64px;
       border: 8px solid rgba(255,255,255,0.2);
@@ -188,25 +186,28 @@
   <div id="websocket-controls">
     <h2>AI Pilot</h2>
 
-    <!-- This button calls /get_plan and /generate_history to retrieve a plan and update history. -->
+    <!-- Retrieve plan from /get_plan -->
     <button id="retrievePlanBtn">Retrieve Plan</button>
     <label for="goalInput">Goal for Plan:</label>
     <input type="text" id="goalInput" value="Explore the city" />
 
-    <!-- After we have plan, we can open the WS and do bounding boxes. -->
+    <!-- Open WebSocket to /feed -->
     <button id="openWsBtn">Open WebSocket</button>
 
-    <!-- We'll send the first step or any step to the WS as the "goal" -->
+    <!-- We'll send the current step as the "goal" in a JSON message (with optional frame) -->
     <button id="sendStepBtn">Send Current Step to WS</button>
 
+    <!-- Send the current frame (and same or different goal) to WS -->
     <button id="sendFrameBtn">Send Frame (WS)</button>
+
+    <!-- Mark the current step as complete locally (for UI) -->
     <button id="nextStepBtn">Complete Current Step</button>
 
     <p>Bounding Box: <span id="bboxDisplay">N/A</span></p>
   </div>
 
   <div id="plan-steps-container">
-    <h2>Plan & Steps</h2>
+    <h2>Plan</h2>
     <ol id="planList"></ol>
   </div>
 
@@ -223,9 +224,8 @@
     let ws = null;
     let planSteps = [];
     let currentStepIndex = 0;
+    let globalHistory = [];  // Now just an array of strings
     let currentGoalText = ""; 
-    // Will store the history array from the backend
-    let globalHistory = null;
 
     // Helper function to show/hide the spinner
     function showSpinner() {
@@ -249,7 +249,7 @@
       });
     }
 
-    // Renders plan steps with strike-out for completed steps
+    // Render plan steps with strike-out for completed steps
     function renderPlanSteps() {
       const planList = document.getElementById('planList');
       planList.innerHTML = '';
@@ -265,20 +265,12 @@
     }
 
     /**
-     * Display history in #historyContent as a numbered list.
-     * The backend returns an array of objects like:
-     * [
-     *   {
-     *     "history_id": "history view 1",
-     *     "description": "Some text..."
-     *   }
-     * ]
+     * Display history in #historyContent as a numbered list of vantage strings.
      */
     function updateHistoryDisplay(historyData) {
       const container = document.getElementById("historyContent");
       container.innerHTML = ""; // clear old content
 
-      // If not an array or empty, show fallback
       if (!Array.isArray(historyData) || historyData.length === 0) {
         container.textContent = "No history yet.";
         return;
@@ -287,13 +279,14 @@
       const ol = document.createElement("ol");
       historyData.forEach((entry) => {
         const li = document.createElement("li");
-        li.textContent = entry.description || "No description available";
+        // Each "entry" is just a string now
+        li.textContent = entry;
         ol.appendChild(li);
       });
       container.appendChild(ol);
     }
 
-    // 1. Retrieve the plan from /get_plan, then generate (update) history
+    // 1. Retrieve the plan from /get_plan (remains the same)
     document.getElementById('retrievePlanBtn').onclick = async () => {
       const goal = document.getElementById('goalInput').value.trim();
       if (!goal) {
@@ -312,8 +305,9 @@
       const requestBodyForPlan = {
         goal: goal
       };
-      if (globalHistory) {
-        requestBodyForPlan.history = JSON.stringify(globalHistory);
+      // Optionally add re-eval context
+      if (globalHistory && globalHistory.length > 0) {
+        requestBodyForPlan.history = globalHistory;
       }
       if (planSteps.length > 0) {
         requestBodyForPlan.previousPlan = planSteps;
@@ -322,7 +316,6 @@
         requestBodyForPlan.image = base64Image;
       }
 
-      // 1A: Call /get_plan
       try {
         const responsePlan = await fetch('/get_plan', {
           method: 'POST',
@@ -340,42 +333,8 @@
         }
       } catch (err) {
         console.error("Error calling /get_plan:", err);
-      }
-
-      // 1B: Call /generate_history
-      const requestBodyForHistory = {};
-      if (globalHistory) {
-        requestBodyForHistory.history = JSON.stringify(globalHistory);
-      }
-      if (base64Image) {
-        requestBodyForHistory.image = base64Image;
-      }
-
-      try {
-        const responseHist = await fetch('/generate_history', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(requestBodyForHistory)
-        });
-
-        const dataHist = await responseHist.json();
-        // If the server directly returns an array
-        if (Array.isArray(dataHist)) {
-          globalHistory = dataHist;
-          updateHistoryDisplay(globalHistory);
-        } 
-        // Otherwise, the server might return { updatedHistory: [...] }
-        else if (Array.isArray(dataHist.updatedHistory)) {
-          globalHistory = dataHist.updatedHistory;
-          updateHistoryDisplay(globalHistory);
-        } 
-        else {
-          console.warn("Unexpected /generate_history response:", dataHist);
-        }
-      } catch (err) {
-        console.error("Error calling /generate_history:", err);
       } finally {
-        hideSpinner(); // Hide the spinner once done
+        hideSpinner();
       }
     };
 
@@ -396,45 +355,36 @@
       ws.onclose = () => {
         console.log("WebSocket closed.");
       };
+
       ws.onmessage = (event) => {
         console.log("WS Message:", event.data);
         try {
-          const data = JSON.parse(event.data);
+          const parsed = JSON.parse(event.data);
+          switch (parsed.type) {
+            case "bounding_box":
+              // Hide spinner when bounding_box arrives
+              hideSpinner();
+              // Show the bounding box
+              document.getElementById('bboxDisplay').textContent =
+                `[${parsed.data.join(", ")}]`;
+              break;
 
-          // If there's a bounding_box
-          if (data.bounding_box) {
-            // We got a bounding box => hide spinner
-            hideSpinner();  
-            document.getElementById('bboxDisplay').textContent =
-              `[${data.bounding_box.join(", ")}]`;
-          }
-
-          // If there's an updated history
-          if (typeof data.history !== "undefined") {
-            // If data.history is already an array
-            if (Array.isArray(data.history)) {
-              globalHistory = data.history;
+            case "history":
+              // Update local history array
+              globalHistory = parsed.data;
               updateHistoryDisplay(globalHistory);
-            } else {
-              // Or if it's a string in JSON form
-              try {
-                const histObj = JSON.parse(data.history);
-                if (Array.isArray(histObj)) {
-                  globalHistory = histObj;
-                  updateHistoryDisplay(histObj);
-                } else {
-                  console.warn("Unexpected history format from WS:", histObj);
-                }
-              } catch (e) {
-                console.error("Error parsing WS history:", e);
-              }
-            }
-          }
+              break;
 
-          // Updated step index?
-          if (typeof data.currentStepIndex !== 'undefined') {
-            currentStepIndex = data.currentStepIndex;
-            renderPlanSteps();
+            case "error":
+              // The server might send an "error" type
+              hideSpinner();
+              console.error("Server error:", parsed.message);
+              alert("Server error: " + parsed.message);
+              break;
+
+            default:
+              console.log("Unrecognized WS message type:", parsed.type);
+              break;
           }
         } catch (e) {
           console.error("Error parsing WS message:", e);
@@ -442,8 +392,8 @@
       };
     };
 
-    // 3. Send the CURRENT step to the WS
-    document.getElementById('sendStepBtn').onclick = () => {
+    // 3. Send the CURRENT step to the WebSocket
+    document.getElementById('sendStepBtn').onclick = async () => {
       if (!ws || ws.readyState !== WebSocket.OPEN) {
         console.warn("WebSocket is not open.");
         return;
@@ -453,17 +403,29 @@
         return;
       }
 
+      // The current step’s "goal" text
       currentGoalText = planSteps[currentStepIndex]
         ? planSteps[currentStepIndex].step_description
         : "(No step found)";
 
-      // Optionally show spinner if you like, then hide once a new WS message is received
+      // Optionally attach the current frame
+      let base64Image = null;
+      if (window.lastDroneBlob) {
+        base64Image = await blobToBase64(window.lastDroneBlob);
+      }
+
       showSpinner();
-      ws.send(JSON.stringify({ goal: currentGoalText }));
-      console.log("Sent step as goal:", currentGoalText);
+      // Send a JSON message with {goal, history, image}
+      ws.send(JSON.stringify({
+        goal: currentGoalText,
+        history: globalHistory || [],
+        image: base64Image
+      }));
+
+      console.log("Sent step as goal + optional image to WS:", currentGoalText);
     };
 
-    // 4. Send a frame (binary) to the WS, also call /generate_history
+    // 4. Send a frame to the WS (for bounding box / history update)
     document.getElementById('sendFrameBtn').onclick = async () => {
       if (!ws || ws.readyState !== WebSocket.OPEN) {
         console.warn("WebSocket is not open. Cannot send frame.");
@@ -474,57 +436,30 @@
         return;
       }
 
-      showSpinner(); // Show spinner while we wait for bounding_box message
+      showSpinner(); // We'll hide it once bounding_box is received
 
-      // Send the binary data via WS
-      const arrayBuffer = await window.lastDroneBlob.arrayBuffer();
-      ws.send(arrayBuffer);
-      console.log("Sent drone FPV frame to WebSocket.");
-
-      // Update history with the same frame (via fetch)
+      // Convert the blob to base64
       const base64Image = await blobToBase64(window.lastDroneBlob);
-      const requestBodyForHistory = {};
-      if (globalHistory) {
-        requestBodyForHistory.history = JSON.stringify(globalHistory);
-      }
-      requestBodyForHistory.image = base64Image;
 
-      try {
-        const responseHist = await fetch('/generate_history', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(requestBodyForHistory)
-        });
-        const dataHist = await responseHist.json();
+      // We can pass the same or a different "goal" here
+      const goal = document.getElementById('goalInput').value.trim() || "N/A";
 
-        if (Array.isArray(dataHist)) {
-          globalHistory = dataHist;
-          updateHistoryDisplay(globalHistory);
-        } else if (Array.isArray(dataHist.updatedHistory)) {
-          globalHistory = dataHist.updatedHistory;
-          updateHistoryDisplay(globalHistory);
-        } else {
-          console.warn("Unexpected response from /generate_history:", dataHist);
-        }
-      } catch (err) {
-        console.error("Error calling /generate_history:", err);
-      }
-      // Spinner will be hidden when we receive a bounding_box message from WS (onmessage handler)
-      // or after a timeout if you want to auto-hide it anyway.
+      // Send JSON with { goal, history, image } 
+      ws.send(JSON.stringify({
+        goal: goal,
+        history: globalHistory,
+        image: base64Image
+      }));
+
+      console.log("Sent drone FPV frame + current history to WS.");
     };
 
-    // 5. Complete the current step => increment step index
+    // 5. Complete the current step => increment step index (local UI only)
     document.getElementById('nextStepBtn').onclick = () => {
-      if (!ws || ws.readyState !== WebSocket.OPEN) {
-        console.warn("WebSocket is not open. Cannot complete step.");
-        return;
+      if (currentStepIndex < planSteps.length) {
+        currentStepIndex += 1;
+        renderPlanSteps();
       }
-      // Optionally show a spinner until the step is completed
-      showSpinner();
-      ws.send(JSON.stringify({ completeStep: true }));
-      console.log("Requested step completion.");
-      // The spinner can be hidden in ws.onmessage when the step is actually completed, 
-      // or you can hide it here if you prefer immediate feedback.
     };
   </script>
 </body>

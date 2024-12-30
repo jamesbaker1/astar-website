@@ -453,20 +453,30 @@ function animate() {
   renderer.setRenderTarget(droneRenderTarget);
   renderer.clear();
   renderer.render(scene, droneCamera);
+
   const width = droneRenderTarget.width;
   const height = droneRenderTarget.height;
   const buffer = new Uint8Array(width * height * 4);
   renderer.readRenderTargetPixels(droneRenderTarget, 0, 0, width, height, buffer);
+
+  // Flip the rows in "buffer"
+  const flippedBuffer = new Uint8Array(width * height * 4);
+  for (let y = 0; y < height; y++) {
+    const srcY = (height - 1 - y);
+    const srcOffset = srcY * width * 4;
+    const dstOffset = y     * width * 4;
+    flippedBuffer.set(buffer.subarray(srcOffset, srcOffset + width * 4), dstOffset);
+  }
 
   // Convert pixel buffer to an image Blob
   const offscreenCanvas = document.createElement('canvas');
   offscreenCanvas.width = width;
   offscreenCanvas.height = height;
   const ctx = offscreenCanvas.getContext('2d');
+
+  // Put flippedBuffer into an ImageData and draw
   const imageData = ctx.createImageData(width, height);
-  imageData.data.set(buffer);
-  ctx.translate(0, height);
-  ctx.scale(1, -1);
+  imageData.data.set(flippedBuffer);
   ctx.putImageData(imageData, 0, 0);
 
   offscreenCanvas.toBlob((blob) => {

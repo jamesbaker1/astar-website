@@ -12,16 +12,148 @@ import base64
 
 import google.generativeai as genai
 
-# Configure the Gemini model
+# Configure Gemini
 genai.configure(api_key="AIzaSyD6dke9yd-dmZoNmGhXdVEhQFIjkb0sxXY")
 model = genai.GenerativeModel("gemini-2.0-flash-exp")
 
 app = FastAPI()
 
-# Global state for a simple demo (or you can store in a session)
-current_goal = None
-history_text = ""
-current_step_index = 0
+@app.get("/")
+async def root():
+    return FileResponse("public/demo.html")
+
+
+@app.websocket("/feed")
+async def websocket_feed(websocket: WebSocket):
+    """
+    A stateless WebSocket endpoint that expects a single TEXT message
+    containing JSON with:
+      - goal (string)
+      - history (list of strings, each with 2 short sentences)
+      - image (base64-encoded)
+
+    Then:
+      1. Decode the base64 image and save to disk.
+      2. Generate bounding box => send bounding_box message.
+      3. Generate updated history => send history message (now just an array of strings).
+      4. Loop until the client disconnects.
+    """
+    await websocket.accept()
+    print("WebSocket connection accepted (stateless mode)")
+
+    while True:
+        try:
+            # 1) Wait for text from the client (JSON)
+            raw_message = await websocket.receive_text()
+            data = json.loads(raw_message)
+
+            # 2) Parse fields: goal, history, base64 image
+            goal = data.get("goal", "")
+            history_data = data.get("history", [])  # list of strings
+            image_base64 = data.get("image", None)
+
+            if not goal:
+                print("[Warning] No goal provided in message.")
+            if not image_base64:
+                print("[Warning] No base64 image provided.")
+
+            # 3) Decode the base64 image to a local file (if provided)
+            filename = None
+            if image_base64:
+                try:
+                    image_bytes = base64.b64decode(image_base64)
+                    # Save to file
+                    filename = f"frame_{int(time.time())}.jpg"
+                    with open(filename, "wb") as f:
+                        f.write(image_bytes)
+                    print(f"Decoded image written to: {filename}")
+                except Exception as e:
+                    print(f"Error decoding base64 image: {e}")
+                    await websocket.send_json({
+                        "type": "error",
+                        "message": "Could not decode base64 image"
+                    })
+                    continue
+
+            # 4) Generate bounding box
+            if filename and goal:
+                bounding_box = await generate_bounding_box(filename, goal, history_data)
+            else:
+                bounding_box = []
+
+            # Send bounding box to client immediately
+            await websocket.send_json({
+                "type": "bounding_box",
+                "data": bounding_box
+            })
+
+            # 5) Generate updated history (array of strings)
+            if filename:
+                updated_history = await generate_updated_history(filename, history_data)
+            else:
+                updated_history = history_data or []
+
+            # Send updated history to client
+            await websocket.send_json({
+                "type": "history",
+                "data": updated_history
+            })
+
+            # 6) Clean up the local file
+            if filename and os.path.exists(filename):
+                os.remove(filename)
+
+        except WebSocketDisconnect:
+            print("WebSocket disconnected.")
+            break
+        except Exception as e:
+            print("Error in WebSocket loop:", e)
+            break
+
+
+async def generate_bounding_box(image_path: str, goal: str, history: list) -> list:
+    """
+    Generate a bounding box. Return in the form [ymin, xmin, ymax, xmax].
+    If parsing fails, return an empty list.
+    
+    history is now just a list of 2-sentence strings.
+    """
+    # Convert history list -> string for the prompt
+    # e.g. history = ["Two short sentences.", "Another vantage..."]
+    if history:
+        history_str = "\n".join([f"View {i}: {entry}" for i, entry in enumerate(history)])
+    else:
+        history_str = "No prior vantage data."
+
+    # Build prompt
+    bounding_box_prompt = (
+        "You are an expert drone pilot.\n"
+        f"Goal: {goal}\n\n"
+        "Existing vantage descriptions (each is 2 sentences):\n"
+        f"{history_str}\n\n"
+        "Given the new image, generate a bounding box in the form of [ymin, xmin, ymax, xmax] "
+        "where you want the drone to fly. Be very conservative to avoid collisions.\n"
+        "Give an explanation, then the coordinates in the last line."
+    )
+
+    # Upload the file
+    file_attachment = genai.upload_file(image_path)
+
+    # Call Gemini
+    result = model.generate_content([file_attachment, "\n\n", bounding_box_prompt])
+    gemini_response = result.text
+    print(f"[Bounding Box] Gemini response:\n{gemini_response}")
+
+    # Parse bounding box
+    bbox_match = re.search(
+        r"\[\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\]",
+        gemini_response
+    )
+    if bbox_match:
+        ymin, xmin, ymax, xmax = bbox_match.groups()
+        return [int(ymin), int(xmin), int(ymax), int(xmax)]
+    else:
+        return []
 
 @app.post("/get_plan")
 async def get_plan(request: Request):
@@ -120,272 +252,69 @@ async def get_plan(request: Request):
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
-@app.post("/generate_history")
-async def generate_history(request: Request):
+async def generate_updated_history(image_path: str, current_history: list) -> list:
     """
-    This endpoint updates the 'history' by describing the current FPV (image),
-    referencing what we've seen so far (if provided), and optionally including
-    the last drone movement. It returns the updated history in JSON form.
+    Generate or update the history with 2-sentence descriptions of the new FPV.
+    Return your entire updated history as an array of strings.
     
-    The response from Gemini/your LLM must:
-      1. Return valid JSON matching the schema:
-         [
-           {
-             "history_id": "history view 1",
-             "description": "2 short but highly information-dense sentences"
-           },
-           {
-             "history_id": "history view 2",
-             "description": "2 short but highly information-dense sentences"
-           }
-         ]
-      2. Contain only 2 short but highly information-dense sentences for each
-         new FPV view. The model may modify or update existing entries if
-         needed for consistency or clarity.
+    Each string is "2 short, highly information-dense sentences."
+    The index in the array corresponds to the vantage number.
     """
+    # Convert the existing list to a multiline string for the LLM prompt
+    # e.g. current_history = ["Sentences for vantage #0", "Sentences for vantage #1"]
+    if current_history:
+        existing_history_str = "\n".join(
+            [f"View {i}: {desc}" for i, desc in enumerate(current_history)]
+        )
+    else:
+        existing_history_str = "(no prior vantage)"
+
+    # Create the prompt
+    # We ask the model to append a new vantage with exactly 2 short sentences to our history array.
+    # Then return the ENTIRE updated array in valid JSON.
+    if existing_history_str.strip() and existing_history_str.strip() != "(no prior vantage)":
+        prompt = (
+            "You are an expert drone pilot. This is your new FPV image.\n"
+            "Your existing vantage descriptions (each is exactly 2 short sentences) are:\n"
+            f"{existing_history_str}\n\n"
+            "Describe this new vantage in exactly 2 short, highly information-dense sentences, "
+            "and append it to the existing array of vantage descriptions.\n\n"
+            "Return the entire updated array in **valid JSON** form, like:\n"
+            '["Two short sentences for vantage #0","Two short sentences for vantage #1", ...]'
+        )
+    else:
+        # If we have no prior vantage
+        prompt = (
+            "You are an expert drone pilot seeing your first FPV.\n"
+            "Describe it in exactly 2 short, highly information-dense sentences.\n"
+            "Return as a JSON array of a single string representing the two sentences, e.g.:\n"
+            '["first sentence. second sentence."]'
+        )
+
+    # Upload the file
+    file_attachment = genai.upload_file(image_path)
+    result = model.generate_content([file_attachment, "\n\n", prompt])
+    gemini_response = result.text
+    print(f"[Generate History] Gemini response:\n{gemini_response}")
+
+    # Clean up the LLM output (remove code fences, extra whitespace, etc.)
+    cleaned_text = re.sub(r'```(\w+)?', '', gemini_response).strip()
+
     try:
-        body = await request.json()
-        current_history = body.get("history", "")  # existing history text
-        last_movement = body.get("lastMovement", "")  # e.g. "fly x,y 2 meters"
-        image_base64 = body.get("image", None)
-
-        image_filepath = None
-        file_attachment = None
-
-        # Handle the image, if provided
-        if image_base64:
-            image_data = base64.b64decode(image_base64)
-            image_filepath = f"plan_image_{int(time.time())}.jpg"
-            with open(image_filepath, 'wb') as f:
-                f.write(image_data)
-            file_attachment = genai.upload_file(image_filepath)
-            print(f"Uploaded {image_filepath} to Gemini for context.")
+        updated_history_list = json.loads(cleaned_text)
+        # Ensure we got a list of strings
+        if isinstance(updated_history_list, list) and all(isinstance(x, str) for x in updated_history_list):
+            return updated_history_list
         else:
-            print("No base64 image provided for plan context.")
-
-        # ----- Build the prompt -----
-        if current_history:
-            # Prompt when current_history exists
-            prompt = (
-                "You are an expert drone pilot. This is your current view.\n"
-                f"This is what you have already seen - your history: {current_history}\n\n"
-                "Describe, in relation to what you’ve already seen, your current view and append it "
-                "to the end of your 'history'. Also, based on what you currently see, update your history "
-                "so that it is consistent with a drone's flight path.\n\n"
-                "Important: Only return 2 short but highly information-dense sentences for each new FPV. "
-                "You may add or modify the existing 2 sentences if necessary.\n\n"
-                "Return your answer in the following JSON schema:\n\n"
-                "[\n"
-                "  {\n"
-                "    \"history_id\": \"history view 1\",\n"
-                "    \"description\": \"2 short but highly information-dense sentences\"\n"
-                "  },\n"
-                "  {\n"
-                "    \"history_id\": \"history view 2\",\n"
-                "    \"description\": \"2 short but highly information-dense sentences\"\n"
-                "  }\n"
-                "]\n\n"
-                "Only return valid JSON that matches this schema."
-            )
-        else:
-            # Prompt when there is NO existing history
-            prompt = (
-                "You are an expert drone pilot. This is your current view.\n"
-                "Describe your current view.\n"
-                "Important: Only return 2 short but highly information-dense sentences.\n\n"
-                "Return your answer in the following JSON schema:\n\n"
-                "[\n"
-                "  {\n"
-                "    \"history_id\": \"history view 1\",\n"
-                "    \"description\": \"2 short but highly information-dense sentences\"\n"
-                "  }\n"
-                "]\n\n"
-                "Only return valid JSON that matches this schema."
-            )
-
-        # If we have a last movement, include it in the prompt
-        if last_movement:
-            prompt += f"\nAlso, this is the last flight path you just finished: \"{last_movement}\""
-
-        # ----- Call your model/gemini -----
-        # If you support passing file context + text, do so. Otherwise just pass the prompt.
-        if file_attachment:
-            # Example: pass both the uploaded file and prompt if your system supports it
-            # For demonstration: we'll just pass the prompt
-            result = model.generate_content([file_attachment, "\n\n",  prompt])
-        else:
-            result = model.generate_content(prompt)
-
-        # The model is expected to return JSON text in the structure described
-        updated_history = result.text
-
-        print(f"[generate_history] Model response: {updated_history}")
-
-        # Clean up temporary image file
-        if image_filepath and os.path.exists(image_filepath):
-            os.remove(image_filepath)
-
-        # ----- Return the final JSON -----
-        # Make sure the model output is valid JSON.
-        try:
-            cleaned_text = re.sub(r'```(\w+)?', '', updated_history).strip()
-            updated_history_json = json.loads(cleaned_text)
-        except json.JSONDecodeError:
-            # Handle invalid JSON gracefully
-            return JSONResponse(
-                {"error": "Model output was not valid JSON", "rawOutput": updated_history},
-                status_code=500
-            )
-
-        return JSONResponse(updated_history_json)
-
-    except Exception as e:
-        return JSONResponse({"error": str(e)}, status_code=500)
+            print("LLM returned JSON, but not a list of strings. Using old history.")
+            return current_history
+    except json.JSONDecodeError:
+        print("Invalid JSON from LLM for history. Returning old history.")
+        return current_history
 
 
-@app.websocket("/feed")
-async def websocket_feed(websocket: WebSocket):
-    """
-    WebSocket used for:
-      - Receiving TEXT messages: e.g. {"goal": "..."} or {"completeStep": true}.
-      - Receiving BINARY frames: treat as images -> bounding box detection.
-    We now also incorporate the current 'history' in the prompt if available.
-    """
-    await websocket.accept()
-    print("WebSocket connection accepted")
-
-    global current_goal
-    global history_text
-    global current_step_index
-
-    frame_counter = 0
-    first_image_received = False
-
-    while True:
-        try:
-            message = await websocket.receive()
-
-            # 1. If the client disconnects
-            if message["type"] == "websocket.disconnect":
-                print("WebSocket client disconnected.")
-                break
-
-            # 2. If the message is TEXT
-            if "text" in message:
-                try:
-                    text_msg = message["text"]
-                    data = json.loads(text_msg)
-
-                    # If the user updated the "goal" (which could be a step or sub-goal)
-                    if "goal" in data:
-                        current_goal = data["goal"]
-                        print(f"Updated (sub)goal on the WebSocket feed: {current_goal}")
-
-                    # If the user wants to mark a step completed
-                    if "completeStep" in data and data["completeStep"] == True:
-                        current_step_index += 1
-                        print(f"Step completed. Now current_step_index = {current_step_index}")
-                        # Notify the client
-                        await websocket.send_json({"currentStepIndex": current_step_index})
-
-                except json.JSONDecodeError:
-                    print("Received text but not valid JSON. Ignoring.")
-                except Exception as e:
-                    print("Error processing text message:", e)
-
-            # 3. If the message is BINARY (i.e., an image)
-            if "bytes" in message:
-                frame_data = message["bytes"]
-                arr = np.frombuffer(frame_data, np.uint8)
-                img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
-                if img is not None:
-                    # Flip if needed
-                    img = cv2.flip(img, 0)
-
-                    filename = f"frame_{int(time.time())}_{frame_counter}.jpg"
-                    cv2.imwrite(filename, img)
-                    print(f"Received and saved frame {frame_counter} as {filename}")
-                    frame_counter += 1
-
-                    # Build the bounding box prompt
-                    if not current_goal:
-                        # If no goal is set, skip bounding box
-                        bounding_box = []
-                    else:
-                        # Include the history in the prompt if not first call
-                        if history_text.strip():
-                            bounding_box_prompt = (
-                                "You are an expert drone pilot.\n"
-                                "You have already been flying and this is the history for what you have seen:\n"
-                                f"{history_text}\n\n"
-                                "Now, the current goal/step is:\n"
-                                f"{current_goal}\n"
-                                "Generate a bounding box in the form of [ymin, xmin, ymax, xmax] for where you want the drone to fly.\n"
-                                "Be very conservative with your box so as to minimize the chance you hit any objects.\n"
-                                "Return the smallest box possible to achieve the step.\n"
-                                "Give your explanation first, then the coordinates in the last line."
-                            )
-                        else:
-                            # First call, no prior history
-                            bounding_box_prompt = (
-                                "You are an expert drone pilot.\n"
-                                "This is the first time you've seen this environment, no prior history is available.\n"
-                                f"The current goal/step is:\n{current_goal}\n"
-                                "Generate a bounding box in the form of [ymin, xmin, ymax, xmax] for where you want the drone to fly.\n"
-                                "Be very conservative with your box so as to minimize the chance you hit any objects.\n"
-                                "Return the smallest box possible to achieve the step.\n"
-                                "Give your explanation first, then the coordinates in the last line."
-                            )
-
-                        myfile = genai.upload_file(filename)
-                        result_for_box = model.generate_content([myfile, "\n\n", bounding_box_prompt])
-                        gemini_response_for_box = result_for_box.text
-                        print(f"[Bounding Box] Gemini response: {gemini_response_for_box}")
-
-                        # Attempt to parse bounding box
-                        bbox_match = re.search(
-                            r"\[\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\]",
-                            gemini_response_for_box
-                        )
-                        if bbox_match:
-                            ymin, xmin, ymax, xmax = bbox_match.groups()
-                            bounding_box = [int(ymin), int(xmin), int(ymax), int(xmax)]
-                        else:
-                            bounding_box = []
-
-                    # We could also update 'history_text' here or rely on /generate_history
-                    # But let's keep it separate as per your new flow.
-
-                    # Return bounding box + updated step index to client
-                    await websocket.send_json({
-                        "bounding_box": bounding_box,
-                        "history": history_text,  # We'll rely on /generate_history for actual updates
-                        "currentStepIndex": current_step_index
-                    })
-                else:
-                    print("Received data, but could not decode as an image.")
-
-        except WebSocketDisconnect:
-            print("WebSocket disconnected.")
-            break
-        except Exception as e:
-            print("Error in WebSocket loop:", e)
-            break
-
-
-# Serve static files
 app.mount("/", StaticFiles(directory="public", html=True), name="public")
 
-@app.get("/")
-async def root():
-    return FileResponse("public/demo.html")
 
 if __name__ == "__main__":
-    # Increase timeouts to help keep the socket alive if desired
-    uvicorn.run(
-        app,
-        host="0.0.0.0",
-        port=8000,
-        # ws_ping_interval=60,
-        # ws_ping_timeout=60
-    )
+    uvicorn.run(app, host="0.0.0.0", port=8000)
