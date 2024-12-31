@@ -206,10 +206,10 @@ async def get_plan(request: Request):
         # Base prompt
         plan_prompt = (
             f"You are an expert drone pilot. Your goal is: {goal}.\n"
-            "Below is the current first-person-view image from the drone as an attachment. "
+            "Below is the current first-person-view image from the drone. "
             "Use the context in the image to refine your plan.\n\n"
-            "Output a set of steps to complete the goal. If you are unsure at a given step, "
-            "just return 'Re-evaluate' for that step so you can ask again with better information.\n\n"
+            "Output a set of straightforward atomic steps to complete the goal. If you are unsure at a given step, "
+            "just return 'Re-evaluate' for that step and stop generating steps.\n\n"
             "Return your answer in the following JSON schema:\n\n"
             "[\n"
             "  {\n"

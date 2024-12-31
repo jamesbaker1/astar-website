@@ -256,7 +256,7 @@
 
     function simpleComputeYawNeeded(center) {
       const [x, y] = center;
-      return (x - 0.5) * (Math.PI / 2);
+      return (0.5 - x) * (Math.PI / 2);
     }
 
     // --------------------------------------------------------

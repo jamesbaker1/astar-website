@@ -176,7 +176,7 @@ var speed = 0;
 var lastPosition = new THREE.Vector3();
 
 // Drone cameras
-var droneCamera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+var droneCamera = new THREE.PerspectiveCamera(90, window.innerWidth / window.innerHeight, 0.1, 1000);
 droneCamera.position.set(0, 2, -5);
 var droneCameraTwo = droneCamera.clone();
 
