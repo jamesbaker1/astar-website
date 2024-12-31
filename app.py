@@ -14,7 +14,7 @@ import google.generativeai as genai
 
 # Configure Gemini
 genai.configure(api_key="AIzaSyD6dke9yd-dmZoNmGhXdVEhQFIjkb0sxXY")
-model = genai.GenerativeModel("gemini-2.0-flash-exp")
+model = genai.GenerativeModel("gemini-exp-1206")
 
 app = FastAPI()
 
@@ -120,32 +120,10 @@ async def generate_flight_instruction(image_path: str, goal: str, history: list)
     If parsing fails, return {}.
     """
 
-    # Convert history -> multiline string
-    if history:
-        history_str = "\n".join([f"View {i}: {entry}" for i, entry in enumerate(history)])
-    else:
-        history_str = "No prior vantage data."
-
-    # Build prompt
-    # flight_prompt = (
-    #     "You are an expert drone pilot.\n"
-    #     f"Goal: {goal}\n\n"
-    #     "Existing vantage descriptions (each is 2 sentences):\n"
-    #     f"{history_str}\n\n"
-    #     "You have three possible flight actions:\n"
-    #     "1) Rotate => {\"r\": <angle_degrees>}\n"
-    #     "2) Elevate => {\"e\": <meters_up>}\n"
-    #     "3) Go to bounding box => {\"g\": [ymin, xmin, ymax, xmax]}\n\n"
-    #     "Generate exactly one JSON object with one key among r, e, g.\n"
-    #     "Examples:\n"
-    #     "  {\"r\": 90}\n"
-    #     "  {\"e\": 5}\n"
-    #     "  {\"g\": [100, 200, 300, 400]}\n\n"
-    #     "No extra text. Only return valid JSON."
-    # )
     flight_prompt = (
-        "You are an expert drone pilot.\n"
-        f"Your goal is: {goal}\n\n"
+        "You are an expert drone pilot. The image is the drone's first person view. \n"
+        f"Your goal is: {goal}\n"
+        "If you generate a box, generate the smallest one possible to avoid collisions.\n"
         "You have three possible flight actions to accomplish the goal:\n"
         "1) Rotate => {\"r\": <angle_degrees>}\n"
         "2) Elevate => {\"e\": <meters_up>}\n"
@@ -180,7 +158,13 @@ async def generate_flight_instruction(image_path: str, goal: str, history: list)
     if len(keys_present) != 1:
         # If there's not exactly one valid key, treat as invalid
         return {}
-
+    
+    # If the single valid key is "g", convert that bounding box into center [x, y]
+    if "g" in flight_dict:
+        # flight_dict["g"] is expected to be [ymin, xmin, ymax, xmax] in [0..1000]
+        print("Getting center for: ", flight_dict["g"])
+        flight_dict["g"] = get_bbox_center(flight_dict["g"])
+    
     return flight_dict
 
 
@@ -336,6 +320,29 @@ async def generate_updated_history(image_path: str, current_history: list) -> li
         print("Invalid JSON from LLM for history. Returning old history.")
         return current_history
 
+def get_bbox_center(bbox):
+    """
+    Given a bounding box in the format [ymin, xmin, ymax, xmax],
+    with each value in the range [0..1000], return the center (x, y)
+    in normalized coordinates [0..1].
+    
+    :param bbox: List or tuple of four numbers [ymin, xmin, ymax, xmax],
+                 each in [0..1000].
+    :return: List [x_center, y_center] with each value in [0..1].
+    """
+    ymin, xmin, ymax, xmax = bbox
+    
+    # Normalize each coordinate by dividing by 1000
+    ymin_norm = ymin / 1000.0
+    xmin_norm = xmin / 1000.0
+    ymax_norm = ymax / 1000.0
+    xmax_norm = xmax / 1000.0
+    
+    # Compute center in normalized coordinates
+    x_center = (xmin_norm + xmax_norm) / 2.0
+    y_center = (ymin_norm + ymax_norm) / 2.0
+    
+    return [x_center, y_center]
 
 app.mount("/", StaticFiles(directory="public", html=True), name="public")
 

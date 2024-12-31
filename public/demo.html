@@ -254,6 +254,11 @@
       return yawNeeded;
     }
 
+    function simpleComputeYawNeeded(center) {
+      const [x, y] = center;
+      return (x - 0.5) * (Math.PI / 2);
+    }
+
     // --------------------------------------------------------
     // WEBSOCKET AND UI LOGIC
     // --------------------------------------------------------
@@ -302,7 +307,7 @@
                   `Rotate ${flightInstruction.r} degrees`;
                 console.log("Rotate", flightInstruction.r);
                 // Your rotation logic
-
+                window.yawNeeded = (3.141592/180) * flightInstruction.r;
               } else if (flightInstruction.e !== undefined) {
                 document.getElementById('bboxDisplay').textContent =
                   `elevate ${flightInstruction.e} meters`;
@@ -317,7 +322,8 @@
                   `Go to: [${flightInstruction.g.join(", ")}]`;
                 console.log("Bounding box =>", flightInstruction.g);
 
-                window.yawNeeded = computeYawNeeded(flightInstruction.g, 320, 240);
+                // window.yawNeeded = computeYawNeeded(flightInstruction.g, 320, 240);
+                window.yawNeeded = simpleComputeYawNeeded(flightInstruction.g);
                 window.distanceToTravel = 10.0;
                 console.log("Computed yawNeeded:", window.yawNeeded);
               }

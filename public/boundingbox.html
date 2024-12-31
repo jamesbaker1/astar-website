@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Drone Flight Planner</title>
+  <style>
+    body, html {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden; /* Prevent scrollbars */
+    }
+
+    #container {
+      position: relative;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      width: 100%;
+      height: 100%;
+      background-color: #fafafa;
+    }
+
+    /* The image is scaled to fit while preserving aspect ratio */
+    #myImage {
+      max-width: 100%;
+      max-height: 100%;
+      object-fit: contain;
+      display: block;
+    }
+
+    /* The bounding box is absolutely positioned */
+    #bbox {
+      position: absolute;
+      border: 2px solid red;
+      box-sizing: border-box;
+      pointer-events: none; /* let clicks pass through */
+    }
+  </style>
+</head>
+<body>
+
+<h1>Drone Flight Planner</h1>
+
+<!-- Upload the image -->
+<input type="file" id="imageUpload" accept="image/*"><br>
+
+<!-- Example bounding box coordinates in [0..1000] -->
+<label for="coords">Bounding Box [ymin, xmin, ymax, xmax]:</label>
+<input type="text" id="coords" value="400,650,850,900">
+<button id="drawButton">Draw Bounding Box</button>
+
+<!-- Container for the image and bounding box -->
+<div id="container">
+  <img id="myImage" src="" alt="Uploaded Image">
+  <div id="bbox"></div>
+</div>
+
+<script>
+  const imageUpload = document.getElementById('imageUpload');
+  const coordsInput = document.getElementById('coords');
+  const drawButton = document.getElementById('drawButton');
+  const myImage = document.getElementById('myImage');
+  const bbox = document.getElementById('bbox');
+  const container = document.getElementById('container');
+
+  let imageLoaded = false;
+
+  // Load the selected image into the <img> tag
+  imageUpload.addEventListener('change', function(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = function(event) {
+      myImage.src = event.target.result;
+      myImage.onload = () => {
+        imageLoaded = true;
+        drawBoundingBoxFromInput();
+      };
+    };
+    reader.readAsDataURL(file);
+  });
+
+  drawButton.addEventListener('click', drawBoundingBoxFromInput);
+
+  // Re-draw on window resize, because the image might change size
+  window.addEventListener('resize', drawBoundingBoxFromInput);
+
+  function drawBoundingBoxFromInput() {
+    if (!imageLoaded) return;
+
+    // Parse [ymin, xmin, ymax, xmax]
+    const coords = coordsInput.value.split(',').map(Number);
+    if (coords.length === 4) {
+      drawBoundingBox(coords);
+    } else {
+      alert('Coordinates must be in the format: [ymin, xmin, ymax, xmax]');
+    }
+  }
+
+  function drawBoundingBox(coords) {
+    // The bounding box values from the model are in [0..1000], so first convert to [0..1]
+    const ymin = coords[0] / 1000;
+    const xmin = coords[1] / 1000;
+    const ymax = coords[2] / 1000;
+    const xmax = coords[3] / 1000;
+
+    // Get the actual displayed size & position of the <img> on the page
+    const imgRect = myImage.getBoundingClientRect();
+    const containerRect = container.getBoundingClientRect();
+
+    // The offsets between the container & the image
+    const offsetX = imgRect.left - containerRect.left;
+    const offsetY = imgRect.top - containerRect.top;
+
+    // The displayed (onscreen) width/height of the image
+    const displayedWidth = imgRect.width;
+    const displayedHeight = imgRect.height;
+
+    // Convert normalized box coords [0..1] to actual displayed coordinates
+    // relative to the top-left corner of the image:
+    const boxTop    = offsetY + (ymin * displayedHeight);
+    const boxLeft   = offsetX + (xmin * displayedWidth);
+    const boxWidth  = (xmax - xmin) * displayedWidth;
+    const boxHeight = (ymax - ymin) * displayedHeight;
+
+    // Position and size the bounding box
+    bbox.style.top = `${boxTop}px`;
+    bbox.style.left = `${boxLeft}px`;
+    bbox.style.width = `${boxWidth}px`;
+    bbox.style.height = `${boxHeight}px`;
+  }
+</script>
+
+</body>
+</html>
