@@ -224,16 +224,16 @@ window.addEventListener('keydown', function(event) {
   }
 
   // Flips
-  switch(event.key) {
-    case 'ArrowUp':
-      flipPitch = Math.PI; break;
-    case 'ArrowDown':
-      flipPitch = -Math.PI; break;
-    case 'ArrowLeft':
-      flipRoll = Math.PI; break;
-    case 'ArrowRight':
-      flipRoll = -Math.PI; break;
-  }
+  // switch(event.key) {
+  //   case 'ArrowUp':
+  //     flipPitch = Math.PI; break;
+  //   case 'ArrowDown':
+  //     flipPitch = -Math.PI; break;
+  //   case 'ArrowLeft':
+  //     flipRoll = Math.PI; break;
+  //   case 'ArrowRight':
+  //     flipRoll = -Math.PI; break;
+  // }
 });
 
 window.addEventListener('keyup', function(event) {
