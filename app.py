@@ -15,6 +15,7 @@ import google.generativeai as genai
 # Configure Gemini
 genai.configure(api_key="AIzaSyD6dke9yd-dmZoNmGhXdVEhQFIjkb0sxXY")  # Replace with your API key
 model = genai.GenerativeModel("gemini-exp-1206")  # Or your desired model
+# model = genai.GenerativeModel("gemini-2.0-flash-exp")
 
 app = FastAPI()
 
@@ -91,7 +92,7 @@ async def websocket_feed(websocket: WebSocket):
                 "You are an expert drone pilot. The image is the drone's first person view. "
                 f"Your goal is to: {goal}. Explain yourself before you output an action and try to describe where you want the drone to go before you generate a bounding box. Make the bounding box and distance as conservative as possible to avoid hitting any objects. if you hit an object, someone may die. "
                 "You have three possible flight actions to accomplish the goal:\n"
-                "1) Rotate => {\"r\": <angle_degrees (your field of view is 90 degrees)>}\n"
+                "1) Rotate => {\"r\": <angle_degrees (your field of view is 90 degrees - left turn is negative angle and right turn is positive angle)>}\n"
                 "2) Elevate => {\"e\": <meters_up>}\n"
                 "3) Go to bounding box => {\"g\": [ymin, xmin, ymax, xmax], \"distance\": <meters>}\n\n"
                 "Choose exactly one flight option\n\n"

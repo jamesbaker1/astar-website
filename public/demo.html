@@ -170,10 +170,10 @@
   </div>
 
   <div id="websocket-controls">
-    <h2>AI Pilot (Gemini)</h2>
+    <h2>AI Pilot</h2>
     <label for="goalInput">Goal:</label>
     <input type="text" id="goalInput" value="Explore the city" />
-    <button id="sendGoalBtn">Send to Gemini</button>
+    <button id="sendGoalBtn">Send Frame</button>
 
     <p>Current action: <span id="bboxDisplay">N/A</span></p>
   </div>
@@ -271,6 +271,7 @@
                 console.log("Elevate", flightInstruction.e);
                 // If the server instructs "e": +5 => climb 5m, -5 => descend 5m, etc.
                 window.desiredAltitude += flightInstruction.e;
+                // window.altitudeChangeRemaining = flightInstruction.e;
 
               } else if (Array.isArray(flightInstruction.g)) {
                 document.getElementById('bboxDisplay').textContent =
@@ -279,7 +280,7 @@
 
                 // flightInstruction.g = [center, distance]
                 window.yawNeeded = simpleComputeYawNeeded(flightInstruction.g[0]);
-                window.distanceToTravel = flightInstruction.g[1] * 4 || 10.0;
+                window.distanceToTravel = flightInstruction.g[1] * 3.5 || 10.0;
                 console.log("Computed yawNeeded:", window.yawNeeded);
               }
               break;
@@ -318,7 +319,7 @@
     function showGoalCompletedOverlay(message) {
       const overlay = document.getElementById("goalCompletedOverlay");
       const msgParagraph = document.getElementById("goalCompletedMessage");
-      msgParagraph.textContent = message || "Goal Completed!";
+      msgParagraph.textContent = "Goal Completed!";
       overlay.style.display = "block";
 
       // Optionally auto-hide after 5 seconds
