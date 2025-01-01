@@ -75,7 +75,7 @@ loader.load(
     droneURL,
     function(gltf) {
       drone = gltf.scene;
-      drone.position.set(10, 10, 17); 
+      drone.position.set(-30.74, 3.65, -32.86); 
       drone.scale.set(5,5,5);
       drone.traverse(function(child) {
         if (child.isMesh) {
@@ -100,7 +100,8 @@ loader.load(
       lastSafePosition.copy(drone.position);
 
       // Position camera behind drone initially
-      camera.position.set(drone.position.x, drone.position.y, drone.position.z + 5);
+      // camera.position.set(drone.position.x, drone.position.y, drone.position.z + 5);
+      // camera.postition.set(-31.96, 10.88, -51.47);
       camera.lookAt(drone.position);
     },
     undefined,
@@ -121,6 +122,7 @@ var mount;
 const sceneURL = (window.location.hostname === 'localhost')
   ? '/models/full_gameready_city_buildings_ii.glb' 
   : 'https://itxebbadjnoj2hjf.public.blob.vercel-storage.com/full_gameready_city_buildings_ii-sNDvtZ58W2bSmwapovJMq7L24Mh5Gq.glb';
+// const sceneURL = '/models/st_lukes_court_harrogate_city_block.glb'
 
 loader.load(
   sceneURL, 
@@ -146,11 +148,12 @@ scene.background = new THREE.Color(0xffffff);
 scene.fog = new THREE.Fog(0xCCBDC5, 30, 120);
 
 // Initial camera + OrbitControls
-camera.position.set(10, 10, 35);
+// camera.position.set(-31.96, 10.88, -51.47);
 var controls = new OrbitControls(camera, renderer.domElement);
 controls.minDistance = 20;
 controls.maxDistance = 20;
 controls.update();
+camera.position.set(-31.96, 10.88, -51.47);
 
 // Bomb placeholders
 var bombDropped = false;
@@ -164,11 +167,11 @@ var acceleration = new THREE.Vector3(0,0,0);
 const gravity = -0.005;
 const liftPower = 0.05;
 // Instead of "var desiredAltitude = 1;", use window to make it globally modifiable
-window.desiredAltitude = 1;
+window.desiredAltitude = 1.5;
 
 var pitch = 0;
 var roll = 0;
-var yaw = 3.14;
+var yaw = .34;
 var yawOffset = 0;
 
 // For UI updates

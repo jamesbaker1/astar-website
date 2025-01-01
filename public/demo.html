@@ -84,62 +84,6 @@
       color: #FFD700;
     }
 
-    /* Plan & Steps box */
-    #plan-steps-container {
-      position: absolute;
-      bottom: 20px;
-      right: 360px; 
-      background: rgba(0,0,0,0.7);
-      padding: 10px;
-      border-radius: 5px;
-      max-width: 300px;
-      border: 2px dashed #048A17;
-    }
-    #plan-steps-container h2 {
-      margin: 0;
-      margin-bottom: 10px;
-      font-size: 16px;
-      font-weight: bold;
-      text-decoration: underline;
-    }
-    #planList {
-      margin: 0;
-      padding-left: 20px;
-      font-size: 14px;
-    }
-    .completed-step {
-      text-decoration: line-through;
-      color: #AAA;
-    }
-
-    /* History box */
-    #history-container {
-      position: absolute;
-      bottom: 20px;
-      right: 20px;
-      background: rgba(0,0,0,0.7);
-      padding: 10px;
-      border-radius: 5px;
-      max-width: 300px;
-      border: 2px dashed #808080;
-    }
-    #history-container h2 {
-      margin: 0;
-      margin-bottom: 10px;
-      font-size: 16px;
-      font-weight: bold;
-      text-decoration: underline;
-    }
-    #historyContent {
-      white-space: pre-wrap;
-      max-height: 180px;
-      overflow-y: auto;
-      font-size: 14px;
-      background-color: rgba(255,255,255,0.05);
-      padding: 5px;
-      border-radius: 5px;
-    }
-
     /* Loading Spinner */
     #spinner {
       display: none; /* hidden by default */
@@ -160,15 +104,52 @@
       100% { transform: rotate(360deg); }
     }
 
-    /* Hiding the "Complete Current Step" button for now */
-    #nextStepBtn {
-      display: none;
+    /* Goal Completed Overlay */
+    #goalCompletedOverlay {
+      display: none; /* hidden by default */
+      position: fixed;
+      top: 0; 
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.8);
+      z-index: 10000;
+      text-align: center;
+      padding-top: 30vh; /* center the text vertically somewhat */
+    }
+    #goalCompletedOverlay p {
+      font-size: 24px;
+      margin-bottom: 20px;
+      animation: fadeIn 0.5s ease-in forwards;
+    }
+    #goalCompletedOverlay button {
+      background: #09a809;
+      border: none;
+      color: #fff;
+      padding: 10px 20px;
+      font-size: 16px;
+      border-radius: 5px;
+      cursor: pointer;
+      animation: fadeIn 0.5s ease-in forwards;
+    }
+    #goalCompletedOverlay button:hover {
+      background: #06c106;
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; }
+      to { opacity: 1; }
     }
   </style>
 </head>
 <body>
   <!-- Spinner element (hidden by default) -->
   <div id="spinner"></div>
+
+  <!-- Goal Completed Overlay -->
+  <div id="goalCompletedOverlay">
+    <p id="goalCompletedMessage">Goal Completed!</p>
+    <button onclick="hideGoalCompletedOverlay()">Close</button>
+  </div>
 
   <div id="controls">
     <h2>Controls</h2>
@@ -189,30 +170,12 @@
   </div>
 
   <div id="websocket-controls">
-    <h2>AI Pilot</h2>
-
-    <!-- Retrieve plan from /get_plan -->
-    <button id="retrievePlanBtn">Retrieve Plan</button>
-    <label for="goalInput">Goal for Plan:</label>
+    <h2>AI Pilot (Gemini)</h2>
+    <label for="goalInput">Goal:</label>
     <input type="text" id="goalInput" value="Explore the city" />
-
-    <!-- We'll send the current step as the "goal" in a JSON message (with optional frame) -->
-    <button id="sendCurrentStepBtn">Send Current Step</button>
-
-    <!-- Hidden for now (display: none) -->
-    <button id="nextStepBtn">Complete Current Step</button>
+    <button id="sendGoalBtn">Send to Gemini</button>
 
     <p>Current action: <span id="bboxDisplay">N/A</span></p>
-  </div>
-
-  <div id="plan-steps-container">
-    <h2>Plan</h2>
-    <ol id="planList"></ol>
-  </div>
-
-  <div id="history-container">
-    <h2>History</h2>
-    <div id="historyContent">No history yet.</div>
   </div>
 
   <!-- Drone-related scripts (assume your simulation code) -->
@@ -263,17 +226,13 @@
     // WEBSOCKET AND UI LOGIC
     // --------------------------------------------------------
     let ws = null;
-    let planSteps = [];
-    let currentStepIndex = 0;
-    let globalHistory = []; // array of strings
-    let currentGoalText = "";
 
     // Open WebSocket as soon as the page loads:
     window.addEventListener("load", () => {
       ws = new WebSocket("ws://localhost:8000/feed");
 
       ws.onopen = () => {
-        console.log("WebSocket opened successfully (page load).");
+        console.log("WebSocket opened successfully.");
       };
 
       ws.onerror = (err) => {
@@ -289,11 +248,8 @@
         try {
           const parsed = JSON.parse(event.data);
           switch (parsed.type) {
-
             case "flight_instruction":
-              // Hide spinner when flight_instruction arrives
               hideSpinner();
-
               const flightInstruction = parsed.data || {};
               if (Object.keys(flightInstruction).length === 0) {
                 // No valid instruction
@@ -306,15 +262,14 @@
                 document.getElementById('bboxDisplay').textContent =
                   `Rotate ${flightInstruction.r} degrees`;
                 console.log("Rotate", flightInstruction.r);
-                // Your rotation logic
-                window.yawNeeded = (3.141592/180) * flightInstruction.r;
+                // Convert degrees to radians
+                window.yawNeeded = (Math.PI / 180) * -flightInstruction.r;
+
               } else if (flightInstruction.e !== undefined) {
                 document.getElementById('bboxDisplay').textContent =
-                  `elevate ${flightInstruction.e} meters`;
+                  `Elevate ${flightInstruction.e} meters`;
                 console.log("Elevate", flightInstruction.e);
-
-                // Elevation logic:
-                // If the server instructs "e": +5 means climb 5 meters, -5 means descend 5, etc.
+                // If the server instructs "e": +5 => climb 5m, -5 => descend 5m, etc.
                 window.desiredAltitude += flightInstruction.e;
 
               } else if (Array.isArray(flightInstruction.g)) {
@@ -322,21 +277,20 @@
                   `Go to: [${flightInstruction.g.join(", ")}]`;
                 console.log("Bounding box =>", flightInstruction.g);
 
-                // window.yawNeeded = computeYawNeeded(flightInstruction.g, 320, 240);
-                window.yawNeeded = simpleComputeYawNeeded(flightInstruction.g);
-                window.distanceToTravel = 10.0;
+                // flightInstruction.g = [center, distance]
+                window.yawNeeded = simpleComputeYawNeeded(flightInstruction.g[0]);
+                window.distanceToTravel = flightInstruction.g[1] * 4 || 10.0;
                 console.log("Computed yawNeeded:", window.yawNeeded);
               }
               break;
 
-            case "history":
-              // Update local history array
-              globalHistory = parsed.data;
-              updateHistoryDisplay(globalHistory);
+            case "goal_completed":
+              hideSpinner();
+              console.log("Goal completed message from server:", parsed.message);
+              showGoalCompletedOverlay(parsed.message);
               break;
 
             case "error":
-              // The server might send an "error" type
               hideSpinner();
               console.error("Server error:", parsed.message);
               alert("Server error: " + parsed.message);
@@ -360,6 +314,24 @@
       document.getElementById('spinner').style.display = 'none';
     }
 
+    // Display an elegant overlay for "goal completed"
+    function showGoalCompletedOverlay(message) {
+      const overlay = document.getElementById("goalCompletedOverlay");
+      const msgParagraph = document.getElementById("goalCompletedMessage");
+      msgParagraph.textContent = message || "Goal Completed!";
+      overlay.style.display = "block";
+
+      // Optionally auto-hide after 5 seconds
+      setTimeout(() => {
+        hideGoalCompletedOverlay();
+      }, 5000);
+    }
+
+    function hideGoalCompletedOverlay() {
+      const overlay = document.getElementById("goalCompletedOverlay");
+      overlay.style.display = "none";
+    }
+
     // Helper function to convert a Blob to base64
     async function blobToBase64(blob) {
       return new Promise((resolve, reject) => {
@@ -374,135 +346,35 @@
       });
     }
 
-    // Render plan steps with strike-out for completed steps
-    function renderPlanSteps() {
-      const planList = document.getElementById('planList');
-      planList.innerHTML = '';
-
-      planSteps.forEach((stepObj, idx) => {
-        const li = document.createElement('li');
-        li.textContent = stepObj.step_description || "No step description";
-        if (idx < currentStepIndex) {
-          li.classList.add('completed-step');
-        }
-        planList.appendChild(li);
-      });
-    }
-
-    /**
-     * Display history in #historyContent as a numbered list of vantage strings.
-     */
-    function updateHistoryDisplay(historyData) {
-      const container = document.getElementById("historyContent");
-      container.innerHTML = ""; // clear old content
-
-      if (!Array.isArray(historyData) || historyData.length === 0) {
-        container.textContent = "No history yet.";
-        return;
-      }
-
-      const ol = document.createElement("ol");
-      historyData.forEach((entry) => {
-        const li = document.createElement("li");
-        // Each "entry" is just a string now
-        li.textContent = entry;
-        ol.appendChild(li);
-      });
-      container.appendChild(ol);
-    }
-
-    // 1. Retrieve the plan from /get_plan
-    document.getElementById('retrievePlanBtn').onclick = async () => {
+    // When user clicks "Send to Gemini"
+    document.getElementById('sendGoalBtn').onclick = async () => {
       const goal = document.getElementById('goalInput').value.trim();
       if (!goal) {
         alert("Please enter a goal first.");
         return;
       }
 
-      showSpinner(); // Show the loading spinner
-
-      let base64Image = null;
-      if (window.lastDroneBlob) {
-        base64Image = await blobToBase64(window.lastDroneBlob);
-      }
-
-      // Build the request body for /get_plan
-      const requestBodyForPlan = {
-        goal: goal
-      };
-      // Optionally add re-eval context
-      if (globalHistory && globalHistory.length > 0) {
-        requestBodyForPlan.history = globalHistory;
-      }
-      if (planSteps.length > 0) {
-        requestBodyForPlan.previousPlan = planSteps;
-      }
-      if (base64Image) {
-        requestBodyForPlan.image = base64Image;
-      }
-
-      try {
-        const responsePlan = await fetch('/get_plan', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(requestBodyForPlan)
-        });
-        const dataPlan = await responsePlan.json();
-
-        if (dataPlan.planSteps) {
-          planSteps = dataPlan.planSteps;
-          currentStepIndex = 0;
-          renderPlanSteps();
-        } else {
-          console.warn("No planSteps in /get_plan response:", dataPlan);
-        }
-      } catch (err) {
-        console.error("Error calling /get_plan:", err);
-      } finally {
-        hideSpinner();
-      }
-    };
-
-    // 2. Send the CURRENT step (now that WebSocket opens on page load)
-    document.getElementById('sendCurrentStepBtn').onclick = async () => {
-      if (planSteps.length === 0) {
-        alert("No plan steps to send. Retrieve a plan first.");
-        return;
-      }
-
-      // If the socket isn't open yet (or closed), let's bail out
+      // If the socket isn't open yet (or is closed), let's bail out
       if (!ws || ws.readyState !== WebSocket.OPEN) {
-        alert("WebSocket is not open yet, please wait and try again.");
+        alert("WebSocket is not open yet. Please wait and try again.");
         return;
-      }
-
-      // The current step's "goal" text
-      currentGoalText = planSteps[currentStepIndex]
-        ? planSteps[currentStepIndex].step_description
-        : "(No step found)";
-
-      // Optionally attach the current frame
-      let base64Image = null;
-      if (window.lastDroneBlob) {
-        base64Image = await blobToBase64(window.lastDroneBlob);
       }
 
       showSpinner();
-      // Send a JSON message with {goal, history, image}
+
+      // Optionally attach the current frame from the drone
+      let base64Image = null;
+      if (window.lastDroneBlob) {
+        base64Image = await blobToBase64(window.lastDroneBlob);
+      }
+
+      // Send JSON to the backend
       ws.send(JSON.stringify({
-        goal: currentGoalText,
-        history: globalHistory || [],
+        goal: goal,
         image: base64Image
       }));
 
-      console.log("Sent step as goal + optional image to WS:", currentGoalText);
-      console.log("History: ", globalHistory || []);
-
-      // Automatically increment the step once the previous step is sent
-      if (currentStepIndex < planSteps.length) {
-        currentStepIndex += 1;
-        renderPlanSteps();
-      }
+      console.log("Sent {goal, image} to WS:", goal);
     };
   </script>
 </body>
