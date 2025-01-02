@@ -229,7 +229,15 @@
 
     // Open WebSocket as soon as the page loads:
     window.addEventListener("load", () => {
-      ws = new WebSocket("ws://localhost:8000/feed");
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const host = window.location.host; // includes domain and port if any
+      const path = '/feed';
+
+      // Construct a valid WebSocket URL
+      const wsUrl = `${protocol}//${host}${path}`;
+
+      // Then create the WebSocket:
+      const ws = new WebSocket(wsUrl);
 
       ws.onopen = () => {
         console.log("WebSocket opened successfully.");
