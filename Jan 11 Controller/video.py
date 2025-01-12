@@ -1,9 +1,17 @@
-# ideo.py
+# video.py
 import cv2
 import numpy as np
 from threading import Thread, Lock
 from queue import Queue
 import time
+
+# ---- NEW IMPORT ----
+try:
+    from ultralytics import YOLOWorld
+    YOLO_AVAILABLE = True
+except ImportError:
+    YOLO_AVAILABLE = False
+    print("Warning: ultralytics is not installed. YOLO features will be unavailable.")
 
 class VisualizationType:
     """Enum for different visualization types"""
@@ -20,9 +28,29 @@ class VideoManager:
         self.display_active = False
         self.subscribers = []
         self.visualization_type = VisualizationType.NONE
+        
+        # Overlays
         self.overlay_lock = Lock()
         self.flow_overlay = None
-        self.debug = True  # Add this line to fix the attribute error
+        self.yolo_overlay = None  # store YOLO results here
+
+        # For frame retrieval
+        self.frame_lock = Lock()
+        self.latest_frame = None
+
+        # Debug
+        self.debug = True
+
+        # If ultralytics is installed, load YOLO model
+        if YOLO_AVAILABLE:
+            # Initialize a YOLO-World model
+            self.model = YOLOWorld("yolov8s-world.pt")  # pick any variant
+            # Define custom classes (optional)
+            self.model.set_classes(["person", "bus"])
+            if self.debug:
+                print("YOLOWorld model loaded successfully.")
+        else:
+            self.model = None
 
     def start(self):
         """Start video capture with simpler display loop"""
@@ -38,7 +66,11 @@ class VideoManager:
                 raise ValueError(f"Failed to open video device {self.device_id}")
             
             self.running = True
-            self._run_display_loop()  # Run in main thread like your working code
+            # For this demo, we assume we always want to display
+            self.display_active = True
+
+            # Run the display in the main thread
+            self._run_display_loop()
             return True
             
         except Exception as e:
@@ -49,6 +81,7 @@ class VideoManager:
     def stop(self):
         """Stop video capture"""
         self.running = False
+        self.display_active = False
         if self.camera:
             self.camera.release()
         cv2.destroyAllWindows()
@@ -68,159 +101,6 @@ class VideoManager:
                     print(f"FPS: {cap.get(cv2.CAP_PROP_FPS)}")
                     print("---")
                 cap.release()
-
-    def _capture_loop(self):
-        """Main capture loop"""
-        frame_count = 0
-        last_fps_time = time.time()
-        
-        print("Capture loop starting...")
-        
-        while self.running:
-            try:
-                if not self.camera.isOpened():
-                    print("Camera is not opened")
-                    time.sleep(0.5)
-                    continue
-                
-                ret, frame = self.camera.read()
-                if not ret or frame is None:
-                    print("Failed to capture frame")
-                    time.sleep(0.1)
-                    continue
-                
-                # Update frame count and FPS
-                frame_count += 1
-                if frame_count % 30 == 0:
-                    current_time = time.time()
-                    fps = 30 / (current_time - last_fps_time)
-                    print(f"Camera FPS: {fps:.1f}")
-                    last_fps_time = current_time
-                
-                # Update latest frame
-                with self.frame_lock:
-                    self.latest_frame = frame.copy()
-                
-                # Add to buffer (non-blocking)
-                if not self.frame_buffer.full():
-                    self.frame_buffer.put(frame)
-                
-                # Notify subscribers
-                frame_copy = frame.copy()
-                for subscriber in self.subscribers:
-                    try:
-                        subscriber(frame_copy)
-                    except Exception as e:
-                        print(f"Subscriber error: {str(e)}")
-                
-            except Exception as e:
-                print(f"Capture error: {str(e)}")
-                time.sleep(0.1)
-        
-        print("Capture loop ending...")
-
-    def _display_loop(self):
-        """Main display loop"""
-        print("Display loop starting...")
-        window_name = 'Drone Video Feed'
-        
-        # Initial window creation
-        try:
-            cv2.namedWindow(window_name)
-            print("Window created successfully")
-        except Exception as e:
-            print(f"Window creation failed: {e}")
-            return
-            
-        frame_count = 0
-        last_time = time.time()
-        
-        while self.running and self.display_active:
-            try:
-                ret, frame = self.camera.read()
-                if not ret:
-                    print("Failed to read frame")
-                    continue
-                
-                frame_count += 1
-                if frame_count % 30 == 0:
-                    current_time = time.time()
-                    fps = 30 / (current_time - last_time)
-                    print(f"FPS: {fps:.1f}")
-                    last_time = current_time
-                
-                # Apply visualizations if needed
-                display_frame = frame.copy()
-                with self.overlay_lock:
-                    if self.visualization_type in [VisualizationType.OPTICAL_FLOW, VisualizationType.ALL]:
-                        if self.flow_overlay:
-                            display_frame = self._apply_flow_overlay(display_frame)
-                
-                # Display the frame
-                cv2.imshow(window_name, display_frame)
-                
-                # Notify subscribers
-                for subscriber in self.subscribers:
-                    try:
-                        subscriber(frame.copy())
-                    except Exception as e:
-                        print(f"Subscriber error: {str(e)}")
-                
-                # Handle keyboard input with shorter wait time
-                key = cv2.waitKey(1) & 0xFF
-                if key == ord('q'):
-                    self.display_active = False
-                    break
-                    
-            except Exception as e:
-                print(f"Display loop error: {str(e)}")
-                time.sleep(0.1)
-        
-        # Cleanup
-        try:
-            cv2.destroyWindow(window_name)
-            cv2.waitKey(1)  # Additional wait for macOS
-        except:
-            pass
-
-    def _run_display_loop(self):
-        """Simple display loop similar to your working code"""
-        print("Starting display loop")
-        
-        while self.running:
-            ret, frame = self.camera.read()
-            if not ret:
-                continue
-            
-            # Create copy for display
-            display_frame = frame.copy()
-            
-            # Apply optical flow visualization if active
-            if self.visualization_type in [VisualizationType.OPTICAL_FLOW, VisualizationType.ALL]:
-                if self.flow_overlay:
-                    flow_vectors, z_movement = self.flow_overlay
-                    # Draw flow vectors
-                    for vector in flow_vectors:
-                        x, y = vector[0]
-                        dx, dy = vector[1]
-                        cv2.arrowedLine(display_frame, 
-                                      (int(x), int(y)), 
-                                      (int(x + dx), int(y + dy)),
-                                      (0, 255, 0), 2)
-            
-            # Display frame
-            cv2.imshow('Drone Video Feed', display_frame)
-            
-            # Notify subscribers (optical flow calculation)
-            for subscriber in self.subscribers:
-                try:
-                    subscriber(frame.copy())
-                except Exception as e:
-                    print(f"Subscriber error: {str(e)}")
-            
-            key = cv2.waitKey(1) & 0xFF
-            if key == ord('q'):
-                break
 
     def get_frame(self):
         """Get the latest frame"""
@@ -267,7 +147,7 @@ class VideoManager:
             # Draw label
             text = f"{label}: {confidence:.2f}"
             cv2.putText(overlay, text, (x, y - 10), 
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
         return overlay
 
     def _apply_flow_overlay(self, frame):
@@ -283,8 +163,96 @@ class VideoManager:
             x, y = vector[0]
             dx, dy = vector[1]
             cv2.arrowedLine(overlay, 
-                          (int(x), int(y)), 
-                          (int(x + dx), int(y + dy)),
-                          (0, 255, 0), 2)
+                            (int(x), int(y)), 
+                            (int(x + dx), int(y + dy)),
+                            (0, 255, 0), 2)
 
         return overlay
+
+    def _run_display_loop(self):
+        """Simple display loop similar to your working code"""
+        print("Starting display loop")
+        
+        while self.running:
+            ret, frame = self.camera.read()
+            if not ret or frame is None:
+                continue
+
+            # Store the latest frame for external use (get_frame)
+            with self.frame_lock:
+                self.latest_frame = frame.copy()
+            
+            # -----------------------------
+            # 1. Run YOLO inference if requested
+            # -----------------------------
+            if (
+                self.model 
+                and self.visualization_type in [VisualizationType.YOLO, VisualizationType.ALL]
+            ):
+                # Run prediction on the current frame (BGR -> model handles internally)
+                results = self.model.predict(frame, verbose=False)
+
+                # If results come back successfully, parse them
+                if len(results) > 0:
+                    detection_info = []
+                    # Each 'results' item can contain multiple boxes
+                    for r in results:
+                        for box in r.boxes:
+                            # box.xyxy, box.xywh, box.conf, box.cls, etc.
+                            x1, y1, x2, y2 = box.xyxy[0]  # bounding box corners
+                            conf = float(box.conf[0])     # confidence
+                            cls_id = int(box.cls[0])      # class ID
+                            
+                            # If you defined custom classes with .set_classes(), 
+                            # then model.names[cls_id] gives the correct label
+                            label = self.model.names[cls_id] if self.model.names else f"class_{cls_id}"
+                            
+                            w = x2 - x1
+                            h = y2 - y1
+                            detection_info.append(
+                                (label, conf, (int(x1), int(y1), int(w), int(h)))
+                            )
+                    # Update the YOLO overlay
+                    self.update_yolo_overlay(detection_info)
+                else:
+                    # If no results, clear the overlay
+                    self.update_yolo_overlay(None)
+
+            # -----------------------------
+            # 2. Prepare display frame (apply overlays)
+            # -----------------------------
+            display_frame = frame.copy()
+
+            # Apply YOLO boxes if YOLO or ALL is active
+            if self.visualization_type in [VisualizationType.YOLO, VisualizationType.ALL]:
+                with self.overlay_lock:
+                    display_frame = self._apply_yolo_overlay(display_frame)
+
+            # Apply optical flow overlay if requested
+            if self.visualization_type in [VisualizationType.OPTICAL_FLOW, VisualizationType.ALL]:
+                with self.overlay_lock:
+                    display_frame = self._apply_flow_overlay(display_frame)
+
+            # -----------------------------
+            # 3. Show the frame
+            # -----------------------------
+            cv2.imshow('Drone Video Feed', display_frame)
+
+            # -----------------------------
+            # 4. Notify any subscribers
+            # -----------------------------
+            for subscriber in self.subscribers:
+                try:
+                    subscriber(frame.copy())
+                except Exception as e:
+                    print(f"Subscriber error: {str(e)}")
+
+            # -----------------------------
+            # 5. Handle keyboard input
+            # -----------------------------
+            key = cv2.waitKey(1) & 0xFF
+            if key == ord('q'):
+                break
+
+        # Cleanup
+        self.stop()
