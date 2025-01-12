@@ -229,15 +229,7 @@
 
     // Open WebSocket as soon as the page loads:
     window.addEventListener("load", () => {
-      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const host = window.location.host; // includes domain and port if any
-      const path = '/feed';
-
-      // Construct a valid WebSocket URL
-      const wsUrl = `${protocol}//${host}${path}`;
-
-      // Then create the WebSocket:
-      const ws = new WebSocket(wsUrl);
+      ws = new WebSocket("ws://localhost:8000/feed");
 
       ws.onopen = () => {
         console.log("WebSocket opened successfully.");
@@ -278,7 +270,7 @@
                   `Elevate ${flightInstruction.e} meters`;
                 console.log("Elevate", flightInstruction.e);
                 // If the server instructs "e": +5 => climb 5m, -5 => descend 5m, etc.
-                window.desiredAltitude += flightInstruction.e;
+                window.desiredAltitude += flightInstruction.e * 2;
                 // window.altitudeChangeRemaining = flightInstruction.e;
 
               } else if (Array.isArray(flightInstruction.g)) {
@@ -288,7 +280,7 @@
 
                 // flightInstruction.g = [center, distance]
                 window.yawNeeded = simpleComputeYawNeeded(flightInstruction.g[0]);
-                window.distanceToTravel = flightInstruction.g[1] * 5.5 || 10.0;
+                window.distanceToTravel = flightInstruction.g[1] * 3 || 10.0;
                 console.log("Computed yawNeeded:", window.yawNeeded);
               }
               break;

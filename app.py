@@ -23,6 +23,7 @@ app = FastAPI()
 async def root():
     return FileResponse("public/demo.html")
 
+
 @app.websocket("/feed")
 async def websocket_feed(websocket: WebSocket):
     """
@@ -30,10 +31,10 @@ async def websocket_feed(websocket: WebSocket):
     Expects:
       - goal (initially)
       - image (base64-encoded, in subsequent messages)
-    
+
     Then:
       1. Initialize or continue a chat session with Gemini.
-      2. Send the image and prompt to Gemini.
+      2. Send the image and prompt (only the first time) to Gemini.
       3. Receive Gemini's response. If it contains "GOAL COMPLETED", send a special
          message and exit. Otherwise, extract flight instruction from the response.
       4. Send the flight instruction to the client.
@@ -42,8 +43,11 @@ async def websocket_feed(websocket: WebSocket):
     await websocket.accept()
     print("WebSocket connection accepted (stateful mode)")
 
-    chat = None  # Initialize chat session to None
-    goal = "explore the city"  # default
+    # Keep track of the Gemini chat and whether we've already sent the first flight prompt
+    chat = None
+    flight_prompt_sent = False
+
+    goal = "explore the city"  # default goal
     try:
         while True:
             # 1) Wait for text from the client (JSON)
@@ -82,34 +86,42 @@ async def websocket_feed(websocket: WebSocket):
                         "message": "Could not decode base64 image"
                     })
                     continue
-            
-            # 4) Initialize or continue chat session
+
+            # 4) Initialize chat session if needed
             if chat is None:
                 chat = model.start_chat(history=[])
-            
-            # 5) Create prompt
+
+            # 5) Define the flight prompt (only needed the first time)
             flight_prompt = (
                 "You are an expert drone pilot. The image is the drone's first person view. "
-                f"Your goal is to: {goal}. Explain yourself before you output an action and try to describe where you want the drone to go before you generate a bounding box. Make the bounding box and distance as conservative as possible to avoid hitting any objects. if you hit an object, someone may die. "
+                f"Your goal is to: {goal}. Explain yourself before you output an action and try to describe where "
+                "you want the drone to go before you generate a bounding box. Make the bounding box as conservative as possible to avoid hitting any objects. if you hit an object, someone may die "
                 "You have three possible flight actions to accomplish the goal:\n"
                 "1) Rotate => {\"r\": <angle_degrees (your field of view is 90 degrees - left turn is negative angle and right turn is positive angle)>}\n"
                 "2) Elevate => {\"e\": <meters_up>}\n"
                 "3) Go to bounding box => {\"g\": [ymin, xmin, ymax, xmax], \"distance\": <meters>}\n\n"
-                "Choose exactly one flight option\n\n"
+                "Choose only one flight action\n\n"
                 "If you believe you have accomplished your goal simply return GOAL COMPLETED."
             )
 
-            # 6) Send image and prompt to Gemini in the chat thread
+            # 6) Create the file attachment from the new image
             file_attachment = genai.upload_file(filename)
-            parts = [file_attachment, flight_prompt]
-            print(f"Sending prompt to Gemini:\n{flight_prompt}")
-            response = chat.send_message(parts)
 
-            # 7) Get Gemini's raw response
+            # 7) If we've never sent the flight prompt, send prompt + image
+            #    Otherwise, only send the image
+            if not flight_prompt_sent:
+                parts = [file_attachment, flight_prompt]
+                flight_prompt_sent = True
+                print("Sending the first flight prompt + image to Gemini...")
+            else:
+                parts = [file_attachment]
+                print("Sending only the image to Gemini (no repeated flight prompt)...")
+
+            response = chat.send_message(parts)
             gemini_response = response.text
             print(f"[Flight Instruction] Gemini response:\n{gemini_response}")
 
-            # Check for "GOAL COMPLETED" first
+            # 8) Check for "GOAL COMPLETED"
             if "GOAL COMPLETED" in gemini_response.upper():
                 # Send a special message to the client
                 await websocket.send_json({
@@ -120,21 +132,21 @@ async def websocket_feed(websocket: WebSocket):
                 if filename and os.path.exists(filename):
                     os.remove(filename)
                 break
-            
-            # 8) Otherwise, proceed to extract flight instruction from Gemini's response
+
+            # 9) Otherwise, proceed to extract flight instruction
             flight_instruction = extract_flight_instruction(gemini_response)
 
-            # 9) Send flight instruction to the client
+            # 10) Send flight instruction to the client
             await websocket.send_json({
                 "type": "flight_instruction",
                 "data": flight_instruction
             })
-            
-            # 10) Clean up the local image file
+
+            # 11) Clean up the local image file
             # if filename and os.path.exists(filename):
             #     os.remove(filename)
 
-            # 11) Check for empty flight_instruction => no valid action found
+            # 12) If no instruction, consider that the loop is done
             if not flight_instruction:
                 print("Goal achieved or invalid response. Exiting.")
                 break
@@ -144,6 +156,7 @@ async def websocket_feed(websocket: WebSocket):
     except Exception as e:
         print("Error in WebSocket loop:", e)
 
+
 def extract_flight_instruction(gemini_response: str) -> dict:
     """
     Extracts the flight instruction JSON from Gemini's response.
@@ -152,7 +165,6 @@ def extract_flight_instruction(gemini_response: str) -> dict:
     match = re.search(r"\{.*?\}", gemini_response, re.DOTALL)
     if not match:
         return {}
-    # print(dict(match.group(0)))
     try:
         flight_dict = json.loads(match.group(0))
     except json.JSONDecodeError:
@@ -164,18 +176,17 @@ def extract_flight_instruction(gemini_response: str) -> dict:
     if len(keys_present) != 1:
         return {}
 
-    # If the single valid key is "g", we expect: "g": [ [ymin, xmin, ymax, xmax], distance ]
+    # If the single valid key is "g", we expect: "g": [ymin, xmin, ymax, xmax] + "distance"
     if "g" in flight_dict:
         bbox = flight_dict["g"]
-        distance = flight_dict["distance"]
-        
+        distance = flight_dict.get("distance", 0.0)  # default 0 if missing
         # Convert bounding box to its center
         center = get_bbox_center(bbox)
         # Replace the original g with the processed version: [center, distance]
         flight_dict["g"] = [center, distance]
-        print(flight_dict)
 
     return flight_dict
+
 
 def get_bbox_center(bbox):
     """
@@ -196,8 +207,45 @@ def get_bbox_center(bbox):
 
     return [x_center, y_center]
 
+
 # Mount the static files (public/demo.html, etc.)
 app.mount("/", StaticFiles(directory="public", html=True), name="public")
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
+
+
+
+
+            # # # 5) Create prompt
+            # # flight_prompt = (
+            # #     "You are an expert drone pilot. The image is the drone's first person view. "
+            # #     f"Your goal is to: {goal}. Explain yourself before you output an action and try to describe where you want the drone to go before you generate a bounding box. Make the bounding box and distance as conservative as possible to avoid hitting any objects. if you hit an object, someone may die. "
+            # #     "You have three possible flight actions to accomplish the goal:\n"
+            # #     "1) Rotate => {\"r\": <angle_degrees (your field of view is 90 degrees - left turn is negative angle and right turn is positive angle)>}\n"
+            # #     "2) Elevate => {\"e\": <meters_up>}\n"
+            # #     "3) Go to bounding box => {\"g\": [ymin, xmin, ymax, xmax], \"distance\": <meters>}\n\n"
+            # #     "Choose exactly one flight option\n\n"
+            # #     "If you believe you have accomplished your goal simply return GOAL COMPLETED."
+            # # )
+            # # 5) Create prompt
+            # # flight_prompt = (
+            # #     "You are an expert drone pilot. The image is the drone's first person view. "
+            # #     f"Your goal is to: {goal}. Explain yourself before you output an action and try to describe where you want the drone to go before you generate a bounding box. Make the bounding box and distance as conservative as possible to avoid hitting any objects. if you hit an object, someone may die. "
+            # #     "You have three possible flight actions to accomplish the goal:\n"
+            # #     "1) Rotate => {\"r\": <angle_degrees (your field of view is 90 degrees - left turn is negative angle and right turn is positive angle)>}\n"
+            # #     "2) Elevate => {\"e\": <meters_up>}\n"
+            # #     "3) Go to => {\"g\": <detailed description of object/place that includes spatial understanding>, \"distance\": <meters>}\n\n"
+            # #     "Choose exactly one flight option\n\n"
+            # #     "If you believe you have accomplished your goal simply return GOAL COMPLETED."
+            # # )
+            # flight_prompt = (
+            #     "You are an expert drone pilot. The image is the drone's first person view. "
+            #     f"Your goal is to: {goal}. Explain yourself before you output an action and try to describe where you want the drone to go before you generate a bounding box."
+            #     "You have three possible flight actions to accomplish the goal:\n"
+            #     "1) Rotate => {\"r\": <angle_degrees (your field of view is 90 degrees - left turn is negative angle and right turn is positive angle)>}\n"
+            #     "2) Elevate => {\"e\": <meters_up>}\n"
+            #     "3) Go to bounding box => {\"g\": [ymin, xmin, ymax, xmax], \"distance\": <meters>}\n\n"
+            #     "Choose only one flight action\n\n"
+            #     "If you believe you have accomplished your goal simply return GOAL COMPLETED."
+            # )
