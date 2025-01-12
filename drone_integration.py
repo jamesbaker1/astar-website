@@ -8,6 +8,7 @@ import asyncio
 import websockets
 import threading
 
+
 ################################################################################
 #                       ASYNC WEBSOCKET CLIENT CODE                            #
 ################################################################################
@@ -33,15 +34,47 @@ async def connect_to_backend(uri="ws://localhost:8000/feed"):
             while True:
                 message = await websocket.recv()  # blocks until a message arrives
                 # Handle incoming messages (JSON from the server)
-                print(f"[WS] Received from server: {message}")
+                handle_server_message(message)
         except websockets.exceptions.ConnectionClosedError:
             print("[WS] Connection closed by the server.")
         except Exception as e:
             print(f"[WS] Error in receive loop: {e}")
 
-    # If we exit the async with block, the connection is closed
+    # If we exit the async 'with' block, the connection is closed
     ws_connection = None
     print("[WS] WebSocket connection closed.")
+
+def handle_server_message(message: str):
+    """
+    Parse the server message (JSON) and print out relevant info or errors.
+    """
+    print(f"[WS] Raw message from server: {message}")
+    
+    try:
+        msg_json = json.loads(message)
+    except json.JSONDecodeError:
+        print("[WS] Could not decode JSON from server.")
+        return
+
+    # Example: the server might send:
+    #  { "type": "flight_instruction", "data": {...} }
+    #  { "type": "goal_completed", "message": "..." }
+    #  { "type": "error", "message": "..." }
+    msg_type = msg_json.get("type", "")
+    if msg_type == "flight_instruction":
+        flight_instr = msg_json.get("data", {})
+        print("[WS] >>> Flight instruction from server:", flight_instr)
+
+    elif msg_type == "goal_completed":
+        print("[WS] >>> GOAL COMPLETED message from server:", msg_json.get("message", ""))
+
+    elif msg_type == "error":
+        print("[WS] >>> ERROR from server:", msg_json.get("message", ""))
+
+    else:
+        # Handle any other message types or unexpected data
+        print("[WS] >>> Unrecognized message type from server:", msg_json)
+
 
 async def send_frame_to_backend(frame, goal="explore the city"):
     """
@@ -92,27 +125,17 @@ def start_websocket_client():
 
 def send_frame_in_thread(frame, goal="explore the city"):
     """
-    Thread-safe helper to schedule the 'send_frame_to_backend' coroutine
-    on the already‐running event loop. 
+    Thread-safe helper to schedule 'send_frame_to_backend' coroutine
+    on the already-running event loop.
     """
     loop = asyncio.get_event_loop()
-    # If there's no current running event loop, it means
-    # we are in the main thread; let's find the existing loop in threads.
+    # If there's a running event loop, schedule the coroutine in it
     if loop.is_running():
-        # We are inside the event loop or the event loop is already running
         asyncio.run_coroutine_threadsafe(send_frame_to_backend(frame, goal), loop)
     else:
-        # This can happen if we call it from the main thread outside an async context
-        # but our background thread is running the loop:
-        # get_event_loop() might raise an error if no loop is set. 
-        # In that case, we find the running loop from threading.
-        import threading
-        for th in threading.enumerate():
-            if th.name == "MainThread":
-                # Not always trivial to forcibly get the loop from that thread.
-                pass
-        # simpler fallback: just try the default loop
+        # Fallback if for some reason the loop isn't recognized
         asyncio.run_coroutine_threadsafe(send_frame_to_backend(frame, goal), asyncio.get_event_loop())
+
 
 ################################################################################
 #                        OPEN CV CAPTURE CODE                                  #
